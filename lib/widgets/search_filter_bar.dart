@@ -1,0 +1,426 @@
+import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
+
+enum ClipTab {
+  all,
+  auto,
+  starred,
+  trash,
+}
+
+class SearchFilterBar extends StatelessWidget {
+  final TextEditingController controller;
+  final bool isDark;
+  final int allCount;
+  final int autoCount;
+  final int starredCount;
+  final int trashCount;
+  final ClipTab activeTab;
+  final ValueChanged<ClipTab> onTabChanged;
+  final ValueChanged<String> onChanged;
+  final VoidCallback onClear;
+  final VoidCallback onPaste;
+  final VoidCallback? onEmptyTrash;
+
+  const SearchFilterBar({
+    super.key,
+    required this.controller,
+    required this.isDark,
+    required this.allCount,
+    required this.autoCount,
+    required this.starredCount,
+    required this.trashCount,
+    required this.activeTab,
+    required this.onTabChanged,
+    required this.onChanged,
+    required this.onClear,
+    required this.onPaste,
+    this.onEmptyTrash,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final textColor = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
+    final subtextColor = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+    final inputBg = isDark ? AppColors.darkGlassSurface : AppColors.lightGlassSurface;
+    final borderColor = isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 10, 10, 6),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Search Box with Vertically Centered Icon and Placeholder
+          Container(
+            height: 36,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: inputBg,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: borderColor, width: 1),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // Prefix Search Icon
+                Padding(
+                  padding: const EdgeInsets.only(left: 10, right: 6),
+                  child: Icon(
+                    Icons.search_rounded,
+                    size: 16,
+                    color: subtextColor,
+                  ),
+                ),
+
+                // Search TextField (Vertically Centered)
+                Expanded(
+                  child: TextField(
+                    controller: controller,
+                    onChanged: onChanged,
+                    textAlignVertical: TextAlignVertical.center,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: textColor,
+                    ),
+                    decoration: InputDecoration(
+                      hintText: activeTab == ClipTab.trash
+                          ? 'Search trash clips...'
+                          : (activeTab == ClipTab.auto
+                              ? 'Search auto clips...'
+                              : 'Search stored clips...'),
+                      hintStyle: TextStyle(
+                        fontSize: 12,
+                        color: subtextColor,
+                      ),
+                      border: InputBorder.none,
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                    ),
+                  ),
+                ),
+
+                // Clear Button if text present
+                if (controller.text.isNotEmpty)
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded, size: 14),
+                    onPressed: onClear,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                    splashRadius: 12,
+                    color: subtextColor,
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // Tabs [All, Auto, Starred, Trash] on Left, [Paste / Empty Trash] on Right
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              // Filter Tabs (All, Auto, Starred, Trash)
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Tab 1: All clips
+                      InkWell(
+                        onTap: () => onTabChanged(ClipTab.all),
+                        borderRadius: BorderRadius.circular(5),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 140),
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3.5),
+                          decoration: BoxDecoration(
+                            color: activeTab == ClipTab.all
+                                ? (isDark ? AppColors.accentSilver.withAlpha(40) : AppColors.lightHandle.withAlpha(30))
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(5),
+                            border: Border.all(
+                              color: activeTab == ClipTab.all
+                                  ? (isDark ? AppColors.accentSilver.withAlpha(120) : AppColors.lightHandle.withAlpha(120))
+                                  : Colors.transparent,
+                              width: 1,
+                            ),
+                          ),
+                          child: Text(
+                            'All ($allCount)',
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: activeTab == ClipTab.all ? FontWeight.w700 : FontWeight.w500,
+                              color: activeTab == ClipTab.all ? textColor : subtextColor,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 3),
+
+                      // Tab 2: Auto-captured clips
+                      InkWell(
+                        onTap: () => onTabChanged(ClipTab.auto),
+                        borderRadius: BorderRadius.circular(5),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 140),
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3.5),
+                          decoration: BoxDecoration(
+                            color: activeTab == ClipTab.auto
+                                ? (isDark ? AppColors.accentCyan.withAlpha(40) : AppColors.accentCyan.withAlpha(30))
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(5),
+                            border: Border.all(
+                              color: activeTab == ClipTab.auto
+                                  ? AppColors.accentCyan.withAlpha(140)
+                                  : Colors.transparent,
+                              width: 1,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              LightningBoltIcon(
+                                size: 11.5,
+                                color: activeTab == ClipTab.auto ? AppColors.accentCyan : subtextColor,
+                              ),
+                              const SizedBox(width: 3),
+                              Text(
+                                'Auto ($autoCount)',
+                                style: TextStyle(
+                                  fontSize: 10.5,
+                                  fontWeight: activeTab == ClipTab.auto ? FontWeight.w700 : FontWeight.w500,
+                                  color: activeTab == ClipTab.auto
+                                      ? (isDark ? AppColors.accentCyan : const Color(0xFF0284C7))
+                                      : subtextColor,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 3),
+
+                      // Tab 3: Starred clips
+                      InkWell(
+                        onTap: () => onTabChanged(ClipTab.starred),
+                        borderRadius: BorderRadius.circular(5),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 140),
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3.5),
+                          decoration: BoxDecoration(
+                            color: activeTab == ClipTab.starred
+                                ? (isDark ? AppColors.accentAmber.withAlpha(40) : AppColors.accentAmber.withAlpha(30))
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(5),
+                            border: Border.all(
+                              color: activeTab == ClipTab.starred
+                                  ? AppColors.accentAmber.withAlpha(140)
+                                  : Colors.transparent,
+                              width: 1,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                activeTab == ClipTab.starred ? Icons.star_rounded : Icons.star_outline_rounded,
+                                size: 12,
+                                color: activeTab == ClipTab.starred ? AppColors.accentAmber : subtextColor,
+                              ),
+                              const SizedBox(width: 2.5),
+                              Text(
+                                'Starred ($starredCount)',
+                                style: TextStyle(
+                                  fontSize: 10.5,
+                                  fontWeight: activeTab == ClipTab.starred ? FontWeight.w700 : FontWeight.w500,
+                                  color: activeTab == ClipTab.starred
+                                      ? (isDark ? Colors.amber[200] : Colors.amber[800])
+                                      : subtextColor,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 3),
+
+                      // Tab 3: Trash
+                      InkWell(
+                        onTap: () => onTabChanged(ClipTab.trash),
+                        borderRadius: BorderRadius.circular(5),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 140),
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3.5),
+                          decoration: BoxDecoration(
+                            color: activeTab == ClipTab.trash
+                                ? (isDark ? const Color(0xFFF43F5E).withAlpha(40) : const Color(0xFFF43F5E).withAlpha(25))
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(5),
+                            border: Border.all(
+                              color: activeTab == ClipTab.trash
+                                  ? const Color(0xFFF43F5E).withAlpha(140)
+                                  : Colors.transparent,
+                              width: 1,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.delete_outline_rounded,
+                                size: 12,
+                                color: activeTab == ClipTab.trash
+                                    ? const Color(0xFFFB7185)
+                                    : subtextColor,
+                              ),
+                              const SizedBox(width: 2.5),
+                              Text(
+                                'Trash ($trashCount)',
+                                style: TextStyle(
+                                  fontSize: 10.5,
+                                  fontWeight: activeTab == ClipTab.trash ? FontWeight.w700 : FontWeight.w500,
+                                  color: activeTab == ClipTab.trash
+                                      ? (isDark ? const Color(0xFFFDA4AF) : const Color(0xFFE11D48))
+                                      : subtextColor,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              const SizedBox(width: 4),
+
+              // Action Button on Right (+ Add in All/Starred, Empty Trash in Trash tab)
+              if (activeTab == ClipTab.trash)
+                if (trashCount > 0 && onEmptyTrash != null)
+                  InkWell(
+                    onTap: onEmptyTrash,
+                    borderRadius: BorderRadius.circular(5),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3.5),
+                      decoration: BoxDecoration(
+                        color: isDark ? const Color(0xFFF43F5E).withAlpha(30) : const Color(0xFFF43F5E).withAlpha(20),
+                        borderRadius: BorderRadius.circular(5),
+                        border: Border.all(
+                          color: const Color(0xFFF43F5E).withAlpha(120),
+                          width: 1,
+                        ),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.delete_sweep_outlined,
+                            size: 12,
+                            color: Color(0xFFFB7185),
+                          ),
+                          SizedBox(width: 3),
+                          Text(
+                            'Empty',
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFFFB7185),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                else
+                  const SizedBox.shrink()
+              else
+                Tooltip(
+                  message: 'Paste from Windows Clipboard',
+                  child: InkWell(
+                    onTap: onPaste,
+                    borderRadius: BorderRadius.circular(5),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3.5),
+                      decoration: BoxDecoration(
+                        color: isDark ? AppColors.accentSilver.withAlpha(35) : AppColors.lightHandle.withAlpha(25),
+                        borderRadius: BorderRadius.circular(5),
+                        border: Border.all(
+                          color: isDark ? AppColors.accentSilver.withAlpha(120) : AppColors.lightHandle.withAlpha(120),
+                          width: 1,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.paste_rounded,
+                            size: 11,
+                            color: isDark ? AppColors.accentSilver : AppColors.lightHandle,
+                          ),
+                          const SizedBox(width: 2.5),
+                          Text(
+                            'Paste',
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w700,
+                              color: isDark ? AppColors.accentSilver : AppColors.lightHandle,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class LightningBoltIcon extends StatelessWidget {
+  final double size;
+  final Color color;
+
+  const LightningBoltIcon({
+    super.key,
+    this.size = 11.5,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      size: Size(size * 0.72, size),
+      painter: _LightningBoltPainter(color),
+    );
+  }
+}
+
+class _LightningBoltPainter extends CustomPainter {
+  final Color color;
+
+  _LightningBoltPainter(this.color);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+
+    final path = Path();
+    path.moveTo(size.width * 0.62, 0);
+    path.lineTo(size.width * 0.05, size.height * 0.54);
+    path.lineTo(size.width * 0.48, size.height * 0.54);
+    path.lineTo(size.width * 0.38, size.height);
+    path.lineTo(size.width * 0.95, size.height * 0.42);
+    path.lineTo(size.width * 0.52, size.height * 0.42);
+    path.close();
+
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _LightningBoltPainter oldDelegate) => oldDelegate.color != color;
+}

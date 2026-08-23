@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Clip Dock - Uninstallation Feedback</title>
+  <meta name="description" content="Clip Dock uninstallation confirmation and user feedback.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-color: #000000;
+      --card-bg: #111111;
+      --card-border: #222222;
+      --text-primary: #FFFFFF;
+      --text-secondary: #94A3B8;
+      --text-muted: #64748B;
+      --accent-cyan: #00D2FF;
+      --accent-cyan-subtle: rgba(0, 210, 255, 0.1);
+      --accent-cyan-border: rgba(0, 210, 255, 0.3);
+      --accent-emerald: #10B981;
+      --input-bg: #181818;
+      --input-border: #2A2A2A;
+      --font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-primary);
+      font-family: var(--font-family);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 32px 16px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 580px;
+      margin: 0 auto;
+    }
+
+    .header-branding {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 24px;
+    }
+
+    .brand-title {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+    }
+
+    .version-tag {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--accent-cyan);
+      background: var(--accent-cyan-subtle);
+      border: 1px solid var(--accent-cyan-border);
+      padding: 2px 8px;
+      border-radius: 12px;
+    }
+
+    .card {
+      background-color: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 36px 32px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+    }
+
+    h1 {
+      font-size: 26px;
+      font-weight: 800;
+      color: var(--text-primary);
+      margin-bottom: 12px;
+      line-height: 1.25;
+      text-align: center;
+    }
+
+    .subtitle {
+      font-size: 14.5px;
+      color: var(--text-secondary);
+      text-align: center;
+      margin-bottom: 28px;
+      line-height: 1.55;
+    }
+
+    .divider {
+      height: 1px;
+      background: var(--card-border);
+      margin: 24px 0;
+    }
+
+    .section-label {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin-bottom: 12px;
+      display: block;
+    }
+
+    .reasons-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    @media (max-width: 480px) {
+      .reasons-grid {
+        grid-template-columns: 1fr;
+      }
+      .card {
+        padding: 24px 20px;
+      }
+      h1 {
+        font-size: 22px;
+      }
+    }
+
+    .reason-option {
+      position: relative;
+    }
+
+    .reason-option input[type="radio"] {
+      position: absolute;
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .reason-label {
+      display: block;
+      padding: 12px 14px;
+      font-size: 12.5px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      background-color: var(--input-bg);
+      border: 1px solid var(--input-border);
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.15s ease-in-out;
+      user-select: none;
+    }
+
+    .reason-option input[type="radio"]:checked + .reason-label {
+      color: var(--accent-cyan);
+      background-color: var(--accent-cyan-subtle);
+      border-color: var(--accent-cyan);
+      font-weight: 600;
+    }
+
+    .reason-label:hover {
+      border-color: #404040;
+      color: var(--text-primary);
+    }
+
+    .feedback-textarea {
+      width: 100%;
+      min-height: 90px;
+      background-color: var(--input-bg);
+      border: 1px solid var(--input-border);
+      border-radius: 10px;
+      padding: 12px 14px;
+      color: var(--text-primary);
+      font-family: var(--font-family);
+      font-size: 13px;
+      line-height: 1.5;
+      resize: vertical;
+      margin-bottom: 24px;
+      outline: none;
+      transition: border-color 0.15s ease;
+    }
+
+    .feedback-textarea:focus {
+      border-color: var(--accent-cyan);
+    }
+
+    .feedback-textarea::placeholder {
+      color: var(--text-muted);
+    }
+
+    .btn-submit {
+      width: 100%;
+      background: #FFFFFF;
+      color: #000000;
+      border: none;
+      border-radius: 10px;
+      padding: 13px 20px;
+      font-size: 13.5px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.15s ease, transform 0.05s ease;
+    }
+
+    .btn-submit:hover {
+      background: #E2E8F0;
+    }
+
+    .btn-submit:active {
+      transform: scale(0.99);
+    }
+
+    .success-state {
+      display: none;
+      text-align: center;
+      padding: 20px 0;
+    }
+
+    .success-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.4);
+      color: var(--accent-emerald);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 16px;
+      font-size: 20px;
+      font-weight: 800;
+    }
+
+    .success-title {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      color: var(--text-primary);
+    }
+
+    .success-msg {
+      font-size: 13.5px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+      margin-bottom: 24px;
+    }
+
+    .card-footer-links {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 24px;
+      padding-top: 20px;
+      border-top: 1px solid var(--card-border);
+      font-size: 12.5px;
+    }
+
+    .footer-link {
+      color: var(--accent-cyan);
+      text-decoration: none;
+      font-weight: 600;
+      transition: opacity 0.15s ease;
+    }
+
+    .footer-link:hover {
+      text-decoration: underline;
+    }
+
+    .secondary-link {
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: color 0.15s ease;
+    }
+
+    .secondary-link:hover {
+      color: var(--text-secondary);
+    }
+
+    .page-footer {
+      margin-top: 28px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .page-footer a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-weight: 600;
+    }
+
+    .page-footer a:hover {
+      color: var(--text-primary);
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <div class="header-branding">
+      <span class="brand-title" id="app-name-display">Clip Dock</span>
+      <span class="version-tag" id="app-version-display">v1.0.0</span>
+    </div>
+
+    <div class="card">
+      <div id="form-container">
+        <h1>We are sorry to see you go.</h1>
+        <p class="subtitle">
+          Clip Dock has been completely uninstalled from your machine. If you have 30 seconds, please let us know why it was not the right fit so we can make it better.
+        </p>
+
+        <form id="uninstall-feedback-form" onsubmit="handleFormSubmit(event)">
+          <label class="section-label">What was the primary reason?</label>
+          <div class="reasons-grid">
+            <div class="reason-option">
+              <input type="radio" id="reason-feature" name="reason" value="Missing features">
+              <label for="reason-feature" class="reason-label">Missing a feature I need</label>
+            </div>
+            <div class="reason-option">
+              <input type="radio" id="reason-performance" name="reason" value="Performance or bug">
+              <label for="reason-performance" class="reason-label">Ran into bugs / performance</label>
+            </div>
+            <div class="reason-option">
+              <input type="radio" id="reason-alternative" name="reason" value="Using another tool">
+              <label for="reason-alternative" class="reason-label">Prefer a different tool</label>
+            </div>
+            <div class="reason-option">
+              <input type="radio" id="reason-testing" name="reason" value="Just testing">
+              <label for="reason-testing" class="reason-label">Just testing it out</label>
+            </div>
+            <div class="reason-option" style="grid-column: span 2;">
+              <input type="radio" id="reason-other" name="reason" value="Other">
+              <label for="reason-other" class="reason-label">Other / Cleaned up PC</label>
+            </div>
+          </div>
+
+          <label for="feedback-text" class="section-label">What could we have done better? (Optional)</label>
+          <textarea
+            id="feedback-text"
+            name="comments"
+            class="feedback-textarea"
+            placeholder="Tell us about your experience, what was missing, or how we could improve..."
+          ></textarea>
+
+          <button type="submit" class="btn-submit" id="submit-btn">Send Feedback</button>
+        </form>
+
+        <div class="card-footer-links">
+          <a href="https://github.com/mahtab-jack" class="secondary-link" target="_blank" rel="noopener">Developer GitHub</a>
+          <a href="https://github.com/mahtab-jack" class="footer-link" id="reinstall-link" target="_blank" rel="noopener">Reinstall Clip Dock</a>
+        </div>
+      </div>
+
+      <div id="success-container" class="success-state">
+        <div class="success-icon">OK</div>
+        <h2 class="success-title">Thank you for your honesty.</h2>
+        <p class="success-msg">
+          Your feedback goes directly to improving future releases. We truly appreciate you taking the time to share your thoughts.
+        </p>
+        <div class="card-footer-links" style="justify-content: center; gap: 24px;">
+          <a href="https://github.com/mahtab-jack" class="footer-link" target="_blank" rel="noopener">Visit Developer Profile</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="page-footer">
+      Developed with precision by <a href="https://github.com/mahtab-jack" target="_blank" rel="noopener">Mahtab Jack</a>
+    </div>
+  </div>
+
+  <!-- Hidden form & iframe for guaranteed Google Forms submission -->
+  <iframe name="google-form-target" id="google-form-target" style="display:none;"></iframe>
+  <form id="google-form-hidden" action="https://docs.google.com/forms/d/e/1FAIpQLSfmIPD8B1DDusB31ehZk8-b7Q5M3Yho8GiqABn9heYM_6yU5w/formResponse" method="POST" target="google-form-target" style="display:none;">
+    <input type="hidden" name="entry.1923996328" id="gf-app" value="">
+    <input type="hidden" name="entry.1606692802" id="gf-version" value="">
+    <input type="hidden" name="entry.1106346464" id="gf-reason" value="">
+    <input type="hidden" name="entry.1117780621" id="gf-comments" value="">
+    <input type="hidden" name="fvv" value="1">
+    <input type="hidden" name="pageHistory" value="0">
+    <input type="hidden" name="fbzx" value="-1965178792116424538">
+  </form>
+
+  <script>
+    // -------------------------------------------------------------
+    // GOOGLE FORMS INTEGRATION CONFIGURATION
+    // -------------------------------------------------------------
+    const GOOGLE_FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSfmIPD8B1DDusB31ehZk8-b7Q5M3Yho8GiqABn9heYM_6yU5w/formResponse';
+    const GOOGLE_ENTRY_APP = 'entry.1923996328';
+    const GOOGLE_ENTRY_VERSION = 'entry.1606692802';
+    const GOOGLE_ENTRY_REASON = 'entry.1106346464';
+    const GOOGLE_ENTRY_COMMENTS = 'entry.1117780621';
+
+    // Parse URL query parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    const appParam = urlParams.get('app');
+    const versionParam = urlParams.get('version');
+
+    const appName = appParam ? (appParam === 'clipdock' ? 'Clip Dock' : appParam) : 'Clip Dock';
+    const appVersion = versionParam ? ('v' + versionParam.replace(/^v/, '')) : 'v1.0.0';
+
+    document.getElementById('app-name-display').textContent = appName;
+    document.getElementById('app-version-display').textContent = appVersion;
+    document.title = appName + ' - Uninstallation Feedback';
+
+    function handleFormSubmit(event) {
+      event.preventDefault();
+      
+      const form = document.getElementById('uninstall-feedback-form');
+      const submitBtn = document.getElementById('submit-btn');
+      const selectedReason = form.querySelector('input[name="reason"]:checked');
+      const reasonValue = selectedReason ? selectedReason.value : 'Not specified';
+      const commentValue = document.getElementById('feedback-text').value.trim();
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Sending...';
+
+      // 1. Submit via hidden standard HTML form into hidden iframe (Guaranteed by browsers)
+      try {
+        document.getElementById('gf-app').value = appName;
+        document.getElementById('gf-version').value = appVersion;
+        document.getElementById('gf-reason').value = reasonValue;
+        document.getElementById('gf-comments').value = commentValue;
+        document.getElementById('google-form-hidden').submit();
+      } catch (err) {
+        console.warn('Iframe form submit notice:', err);
+      }
+
+      // 2. Also dispatch urlencoded fetch with protocol fields
+      try {
+        const params = new URLSearchParams();
+        params.append(GOOGLE_ENTRY_APP, appName);
+        params.append(GOOGLE_ENTRY_VERSION, appVersion);
+        params.append(GOOGLE_ENTRY_REASON, reasonValue);
+        params.append(GOOGLE_ENTRY_COMMENTS, commentValue);
+        params.append('fvv', '1');
+        params.append('pageHistory', '0');
+        params.append('fbzx', '-1965178792116424538');
+
+        fetch(GOOGLE_FORM_URL, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+          },
+          body: params.toString()
+        }).catch(() => {});
+      } catch (_) {}
+
+      // Switch to thank you state
+      setTimeout(() => {
+        document.getElementById('form-container').style.display = 'none';
+        document.getElementById('success-container').style.display = 'block';
+      }, 300);
+    }
+  </script>
+</body>
+</html>
