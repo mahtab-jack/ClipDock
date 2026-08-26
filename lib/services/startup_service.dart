@@ -12,10 +12,6 @@ class StartupService {
 
     try {
       const script = r'''
-$startupPath = [Environment]::GetFolderPath([Environment+SpecialFolder]::Startup)
-$shortcutPath = Join-Path $startupPath "Clip Dock.lnk"
-$hasShortcut = Test-Path $shortcutPath
-
 $hasReg = $false
 foreach ($name in @('ClipDock', 'cnote', 'cNote', 'Clip Dock')) {
   if (Get-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name $name -ErrorAction SilentlyContinue) {
@@ -24,7 +20,16 @@ foreach ($name in @('ClipDock', 'cnote', 'cNote', 'Clip Dock')) {
   }
 }
 
-if (-not $hasShortcut -and -not $hasReg) {
+$startupPath = [Environment]::GetFolderPath([Environment+SpecialFolder]::Startup)
+$hasShortcut = $false
+foreach ($name in @('Clip Dock.lnk', 'cnote.lnk', 'cNote.lnk', 'ClipDock.lnk')) {
+  if (Test-Path (Join-Path $startupPath $name)) {
+    $hasShortcut = $true
+    break
+  }
+}
+
+if (-not $hasReg -and -not $hasShortcut) {
   exit 1
 }
 
@@ -76,38 +81,33 @@ if ($isDisabled) {
     }
   }
 
-  /// Enable or disable launch on Windows startup across Registry, Startup Folder, and StartupApproved keys
+  /// Enable or disable launch on Windows startup via Registry key and clean up startup folder
   static Future<bool> setLaunchOnStartup(bool enable) async {
     if (kIsWeb || !Platform.isWindows) return false;
 
     try {
       String exePath = Platform.resolvedExecutable.replaceAll('"', '');
-      String dirPath = File(exePath).parent.path.replaceAll('"', '');
 
       final script = enable
           ? '''
 \$exePath = "$exePath"
-\$dirPath = "$dirPath"
+
+# 1. Clean up any shortcut from shell:startup folder to prevent duplicate launches
 \$startupPath = [Environment]::GetFolderPath([Environment+SpecialFolder]::Startup)
-\$shortcutPath = Join-Path \$startupPath "Clip Dock.lnk"
+foreach (\$name in @('Clip Dock.lnk', 'cnote.lnk', 'cNote.lnk', 'ClipDock.lnk')) {
+  \$filePath = Join-Path \$startupPath \$name
+  if (Test-Path \$filePath) {
+    Remove-Item -Path \$filePath -Force -ErrorAction SilentlyContinue
+  }
+}
 
-# 1. Create shortcut in shell:startup folder
-try {
-  \$wsh = New-Object -ComObject WScript.Shell
-  \$sc = \$wsh.CreateShortcut(\$shortcutPath)
-  \$sc.TargetPath = \$exePath
-  \$sc.WorkingDirectory = \$dirPath
-  \$sc.Description = "Clip Dock Startup"
-  \$sc.Save()
-} catch {}
-
-# 2. Add to HKCU Run registry
+# 2. Add to HKCU Run registry (single source of truth for startup)
 Set-ItemProperty -Path "$_regRunPath" -Name "ClipDock" -Value "`"\$exePath`"" -ErrorAction SilentlyContinue
 
 # 3. Ensure StartupApproved entries are cleared so Task Manager shows Enabled
 foreach (\$reg in @("$_regApprovedRunPath", "$_regApprovedFolder")) {
   if (Test-Path \$reg) {
-    foreach (\$name in @('ClipDock', 'cnote', 'cNote', 'Clip Dock', 'Clip Dock.lnk', 'cnote.lnk')) {
+    foreach (\$name in @('ClipDock', 'cnote', 'cNote', 'Clip Dock', 'Clip Dock.lnk', 'cnote.lnk', 'ClipDock.lnk')) {
       Remove-ItemProperty -Path \$reg -Name \$name -ErrorAction SilentlyContinue
     }
   }
@@ -121,7 +121,7 @@ foreach (\$name in @('ClipDock', 'cnote', 'cNote', 'Clip Dock')) {
   Remove-ItemProperty -Path "$_regRunPath" -Name \$name -ErrorAction SilentlyContinue
 }
 
-# 2. Remove shortcut from shell:startup folder
+# 2. Remove any shortcut from shell:startup folder
 \$startupPath = [Environment]::GetFolderPath([Environment+SpecialFolder]::Startup)
 foreach (\$name in @('Clip Dock.lnk', 'cnote.lnk', 'cNote.lnk', 'ClipDock.lnk')) {
   \$filePath = Join-Path \$startupPath \$name
@@ -133,7 +133,7 @@ foreach (\$name in @('Clip Dock.lnk', 'cnote.lnk', 'cNote.lnk', 'ClipDock.lnk'))
 # 3. Clean up StartupApproved keys
 foreach (\$reg in @("$_regApprovedRunPath", "$_regApprovedFolder")) {
   if (Test-Path \$reg) {
-    foreach (\$name in @('ClipDock', 'cnote', 'cNote', 'Clip Dock', 'Clip Dock.lnk', 'cnote.lnk')) {
+    foreach (\$name in @('ClipDock', 'cnote', 'cNote', 'Clip Dock', 'Clip Dock.lnk', 'cnote.lnk', 'ClipDock.lnk')) {
       Remove-ItemProperty -Path \$reg -Name \$name -ErrorAction SilentlyContinue
     }
   }
@@ -154,3 +154,4 @@ exit 0
     }
   }
 }
+

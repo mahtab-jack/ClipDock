@@ -243,6 +243,7 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
 
   Future<void> _checkClipboardChanges() async {
     try {
+      if (!_settings.autoCapture) return;
       final data = await Clipboard.getData(Clipboard.kTextPlain);
       final text = data?.text?.trim();
       if (text == null || text.isEmpty) return;
@@ -257,20 +258,7 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
   Future<void> _autoCaptureClip(String text) async {
     final existingIndex = _clips.indexWhere((c) => c.content == text);
     if (existingIndex >= 0) {
-      final existing = _clips.removeAt(existingIndex);
-      existing.isDeleted = false;
-      existing.deletedAt = null;
-      existing.updatedAt = DateTime.now();
-      setState(() {
-        _clips.insert(0, existing);
-        _applyFilter();
-      });
-      if (existing.isAuto) {
-        _showNotification('Auto-saved to Auto tab', ToastType.info);
-      } else {
-        _showNotification('Existing clip moved to top');
-      }
-      await _persistClips();
+      // Clip already exists, preserve its current position in the list
       return;
     }
 
@@ -299,16 +287,17 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
 
   void _onCopyClip(ClipItem item, int serialNo) {
     _lastMonitoredClipboard = item.content.trim();
-    if (item.isAuto) {
-      setState(() {
-        item.isAuto = false;
-        _applyFilter();
-      });
-      _persistClips();
-      _showNotification('Moved to All tab & copied');
-    } else {
-      _showNotification('Copied clip #$serialNo');
-    }
+    _showNotification('Copied clip #$serialNo');
+  }
+
+  void _moveToAllTab(ClipItem item) {
+    setState(() {
+      item.isAuto = false;
+      item.updatedAt = DateTime.now();
+      _applyFilter();
+    });
+    _persistClips();
+    _showNotification('Moved clip to All tab');
   }
 
   void _applyFilter() {
@@ -374,19 +363,21 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
     _lastMonitoredClipboard = text.trim();
     final existingIndex = _clips.indexWhere((c) => c.content == text);
     if (existingIndex >= 0) {
-      final existing = _clips.removeAt(existingIndex);
-      existing.isDeleted = false;
-      existing.isAuto = false;
-      existing.deletedAt = null;
-      if (customTitle != null && customTitle.isNotEmpty) {
-        existing.title = customTitle;
+      final existing = _clips[existingIndex];
+      if (existing.isDeleted) {
+        existing.isDeleted = false;
+        existing.deletedAt = null;
+        if (customTitle != null && customTitle.isNotEmpty) {
+          existing.title = customTitle;
+        }
+        setState(() {
+          _applyFilter();
+        });
+        await _persistClips();
+        _showNotification('Restored existing clip');
+      } else {
+        _showNotification('Clip already in library');
       }
-      setState(() {
-        _clips.insert(0, existing);
-        _applyFilter();
-      });
-      await _persistClips();
-      _showNotification('Existing clip moved to top');
       return;
     }
 
@@ -700,216 +691,226 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
                       sigmaX: _settings.blur,
                       sigmaY: _settings.blur,
                     ),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: bgGlass,
-                        borderRadius: BorderRadius.zero,
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          // Header Bar with Total Active Count
-                          HeaderBar(
-                            isDark: isDark,
-                            isPinned: _isPinned,
-                            totalClips: allCount,
-                            onTogglePin: _togglePin,
-                            onToggleTheme: widget.onToggleTheme,
-                            onCollapse: _collapseManual,
-                            onAdd: _openAddDialog,
-                          ),
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.translucent,
+                      onSecondaryTap: () {
+                        if (_settings.rightClickToPaste) {
+                          _pasteFromClipboard();
+                        }
+                      },
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: bgGlass,
+                          borderRadius: BorderRadius.zero,
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            // Header Bar with Total Active Count
+                            HeaderBar(
+                              isDark: isDark,
+                              isPinned: _isPinned,
+                              totalClips: allCount,
+                              onTogglePin: _togglePin,
+                              onToggleTheme: widget.onToggleTheme,
+                              onCollapse: _collapseManual,
+                              onAdd: _openAddDialog,
+                            ),
 
-                          // Search & Actions Bar (Tabs [All, Auto, Starred, Trash] and Paste / Empty button)
-                          SearchFilterBar(
-                            controller: _searchController,
-                            isDark: isDark,
-                            allCount: allCount,
-                            autoCount: autoCount,
-                            starredCount: starredCount,
-                            trashCount: trashCount,
-                            activeTab: _activeTab,
-                            onTabChanged: (tab) {
-                              setState(() {
-                                _activeTab = tab;
-                                _applyFilter();
-                              });
-                            },
-                            onChanged: _onSearchChanged,
-                            onClear: _clearSearch,
-                            onPaste: _pasteFromClipboard,
-                            onEmptyTrash: _emptyTrash,
-                          ),
+                            // Search & Actions Bar (Tabs [All, Auto, Starred, Trash] and Paste / Empty button)
+                            SearchFilterBar(
+                              controller: _searchController,
+                              isDark: isDark,
+                              allCount: allCount,
+                              autoCount: autoCount,
+                              starredCount: starredCount,
+                              trashCount: trashCount,
+                              activeTab: _activeTab,
+                              onTabChanged: (tab) {
+                                setState(() {
+                                  _activeTab = tab;
+                                  _applyFilter();
+                                });
+                              },
+                              onChanged: _onSearchChanged,
+                              onClear: _clearSearch,
+                              onPaste: _pasteFromClipboard,
+                              onEmptyTrash: _emptyTrash,
+                            ),
 
-                          // Divider
-                          Divider(
-                            height: 1,
-                            thickness: 1,
-                            color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle,
-                          ),
+                            // Divider
+                            Divider(
+                              height: 1,
+                              thickness: 1,
+                              color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle,
+                            ),
 
-                          // Clips List View
-                          Expanded(
-                            child: _filteredClips.isEmpty
-                                ? Center(
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(24.0),
-                                      child: Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          _activeTab == ClipTab.trash
-                                              ? const Icon(
-                                                  Icons.delete_outline_rounded,
-                                                  size: 32,
-                                                  color: Color(0xFFFB7185),
-                                                )
-                                              : (_activeTab == ClipTab.auto
-                                                  ? LightningBoltIcon(
-                                                      size: 32,
-                                                      color: isDark
-                                                          ? AppColors.accentCyan.withAlpha(150)
-                                                          : AppColors.accentCyan.withAlpha(180),
-                                                    )
-                                                  : Icon(
-                                                      Icons.content_paste_outlined,
-                                                      size: 32,
-                                                      color: isDark
-                                                          ? AppColors.darkTextSecondary.withAlpha(120)
-                                                          : AppColors.lightTextSecondary.withAlpha(120),
-                                                    )),
-                                          const SizedBox(height: 10),
-                                          Text(
+                            // Clips List View
+                            Expanded(
+                              child: _filteredClips.isEmpty
+                                  ? Center(
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(24.0),
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
                                             _activeTab == ClipTab.trash
-                                                ? 'Trash is empty.\nDeleted clips will appear here.'
+                                                ? const Icon(
+                                                    Icons.delete_outline_rounded,
+                                                    size: 32,
+                                                    color: Color(0xFFFB7185),
+                                                  )
                                                 : (_activeTab == ClipTab.auto
-                                                    ? 'No auto-captured clips yet.\nCopy any text anywhere on your PC to auto-save it here.'
-                                                    : (_activeTab == ClipTab.starred
-                                                        ? 'No starred clips found.\nClick the star icon on any clip to pin it here.'
-                                                        : (allCount == 0
-                                                            ? 'No manual clips saved yet.\nClick "Paste" or "+ Add" to store clips.'
-                                                            : 'No matching clips found.'))),
-                                            textAlign: TextAlign.center,
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              height: 1.4,
-                                              color: isDark
-                                                  ? AppColors.darkTextSecondary
-                                                  : AppColors.lightTextSecondary,
+                                                    ? LightningBoltIcon(
+                                                        size: 32,
+                                                        color: isDark
+                                                            ? AppColors.accentCyan.withAlpha(150)
+                                                            : AppColors.accentCyan.withAlpha(180),
+                                                      )
+                                                    : Icon(
+                                                        Icons.content_paste_outlined,
+                                                        size: 32,
+                                                        color: isDark
+                                                            ? AppColors.darkTextSecondary.withAlpha(120)
+                                                            : AppColors.lightTextSecondary.withAlpha(120),
+                                                      )),
+                                            const SizedBox(height: 10),
+                                            Text(
+                                              _activeTab == ClipTab.trash
+                                                  ? 'Trash is empty.\nDeleted clips will appear here.'
+                                                  : (_activeTab == ClipTab.auto
+                                                      ? 'No auto-captured clips yet.\nCopy any text anywhere on your PC to auto-save it here.'
+                                                      : (_activeTab == ClipTab.starred
+                                                          ? 'No starred clips found.\nClick the star icon on any clip to pin it here.'
+                                                          : (allCount == 0
+                                                              ? 'No manual clips saved yet.\nClick "Paste" or "+ Add" to store clips.'
+                                                              : 'No matching clips found.'))),
+                                              textAlign: TextAlign.center,
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                height: 1.4,
+                                                color: isDark
+                                                    ? AppColors.darkTextSecondary
+                                                    : AppColors.lightTextSecondary,
+                                              ),
                                             ),
-                                          ),
-                                        ],
+                                          ],
+                                        ),
                                       ),
+                                    )
+                                  : ListView.builder(
+                                      padding: const EdgeInsets.symmetric(vertical: 6),
+                                      itemCount: _filteredClips.length,
+                                      itemBuilder: (context, index) {
+                                        final item = _filteredClips[index];
+                                        final isTrash = _activeTab == ClipTab.trash;
+                                        return ClipCard(
+                                          key: ValueKey(item.id),
+                                          serialNo: index + 1,
+                                          item: item,
+                                          isDark: isDark,
+                                          isTrash: isTrash,
+                                          isAuto: item.isAuto,
+                                          clickRowToCopy: _settings.clickRowToCopy,
+                                          showCopyButton: _settings.showCopyButton,
+                                          dragToPaste: _settings.dragToPaste,
+                                          onCopy: () => _onCopyClip(item, index + 1),
+                                          onNotify: (msg) {
+                                            _lastMonitoredClipboard = item.content.trim();
+                                            _showNotification(msg);
+                                          },
+                                          onEdit: isTrash ? null : () => _openEditDialog(item),
+                                          onDelete: isTrash ? null : () => _deleteClip(item.id),
+                                          onToggleStar: isTrash ? null : () => _toggleStar(item.id),
+                                          onMoveToAll: isTrash ? null : () => _moveToAllTab(item),
+                                          onRestore: isTrash ? () => _restoreClip(item.id) : null,
+                                          onDeleteForever: isTrash ? () => _deletePermanently(item.id) : null,
+                                        );
+                                      },
                                     ),
-                                  )
-                                : ListView.builder(
-                                    padding: const EdgeInsets.symmetric(vertical: 6),
-                                    itemCount: _filteredClips.length,
-                                    itemBuilder: (context, index) {
-                                      final item = _filteredClips[index];
-                                      final isTrash = _activeTab == ClipTab.trash;
-                                      return ClipCard(
-                                        key: ValueKey(item.id),
-                                        serialNo: index + 1,
-                                        item: item,
-                                        isDark: isDark,
-                                        isTrash: isTrash,
-                                        clickRowToCopy: _settings.clickRowToCopy,
-                                        showCopyButton: _settings.showCopyButton,
-                                        onCopy: () => _onCopyClip(item, index + 1),
-                                        onNotify: (msg) {
-                                          _lastMonitoredClipboard = item.content.trim();
-                                          _showNotification(msg);
-                                        },
-                                        onEdit: isTrash ? null : () => _openEditDialog(item),
-                                        onDelete: isTrash ? null : () => _deleteClip(item.id),
-                                        onToggleStar: isTrash ? null : () => _toggleStar(item.id),
-                                        onRestore: isTrash ? () => _restoreClip(item.id) : null,
-                                        onDeleteForever: isTrash ? () => _deletePermanently(item.id) : null,
-                                      );
-                                    },
-                                  ),
-                          ),
+                            ),
 
-                          // Bottom Status and Settings Bar
-                          Container(
-                            height: 38,
-                            padding: const EdgeInsets.symmetric(horizontal: 10),
-                            decoration: BoxDecoration(
-                              color: isDark
-                                  ? const Color(0xFF000000).withAlpha(230)
-                                  : const Color(0xFFF1F5F9).withAlpha(200),
-                              border: Border(
-                                top: BorderSide(
-                                  color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle,
-                                  width: 1,
+                            // Bottom Status and Settings Bar
+                            Container(
+                              height: 38,
+                              padding: const EdgeInsets.symmetric(horizontal: 8),
+                              decoration: BoxDecoration(
+                                color: isDark
+                                    ? const Color(0xFF000000).withAlpha(230)
+                                    : const Color(0xFFF1F5F9).withAlpha(200),
+                                border: Border(
+                                  top: BorderSide(
+                                    color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle,
+                                    width: 1,
+                                  ),
                                 ),
                               ),
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                // Settings and About Buttons on Far Left
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    // Settings Button
-                                    InkWell(
-                                      onTap: _openSettingsDialog,
-                                      borderRadius: BorderRadius.circular(5),
-                                      child: Padding(
-                                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(
-                                              Icons.settings_outlined,
-                                              size: 13,
-                                              color: isDark ? AppColors.accentSilver : AppColors.lightHandle,
-                                            ),
-                                            const SizedBox(width: 4),
-                                            Text(
-                                              'Settings',
-                                              style: TextStyle(
-                                                fontSize: 11,
-                                                fontWeight: FontWeight.w600,
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  // Settings and About Buttons on Far Left
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      // Settings Button
+                                      InkWell(
+                                        onTap: _openSettingsDialog,
+                                        borderRadius: BorderRadius.circular(5),
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.settings_outlined,
+                                                size: 13,
                                                 color: isDark ? AppColors.accentSilver : AppColors.lightHandle,
                                               ),
-                                            ),
-                                          ],
+                                              const SizedBox(width: 3),
+                                              Text(
+                                                'Settings',
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: isDark ? AppColors.accentSilver : AppColors.lightHandle,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
                                         ),
                                       ),
-                                    ),
 
-                                    const SizedBox(width: 8),
+                                      const SizedBox(width: 2),
 
-                                    // About Button
-                                    InkWell(
-                                      onTap: _openAboutDialog,
-                                      borderRadius: BorderRadius.circular(5),
-                                      child: Padding(
-                                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(
-                                              Icons.info_outline_rounded,
-                                              size: 13,
-                                              color: isDark ? AppColors.accentSilver : AppColors.lightHandle,
-                                            ),
-                                            const SizedBox(width: 4),
-                                            Text(
-                                              'About',
-                                              style: TextStyle(
-                                                fontSize: 11,
-                                                fontWeight: FontWeight.w600,
+                                      // About Button
+                                      InkWell(
+                                        onTap: _openAboutDialog,
+                                        borderRadius: BorderRadius.circular(5),
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.info_outline_rounded,
+                                                size: 13,
                                                 color: isDark ? AppColors.accentSilver : AppColors.lightHandle,
                                               ),
-                                            ),
-                                          ],
+                                              const SizedBox(width: 3),
+                                              Text(
+                                                'About',
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: isDark ? AppColors.accentSilver : AppColors.lightHandle,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
                                         ),
                                       ),
-                                    ),
-                                  ],
-                                ),
+                                    ],
+                                  ),
 
                                 // Status info on Far Right
                                 Flexible(
@@ -955,6 +956,7 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
                   ),
                 ),
               ),
+            ),
 
               // 2. Ribbon Handle (Attached directly OUTSIDE on the right side of the panel)
               if (((_isExpanded && _settings.showRibbonWhenExpanded) ||

@@ -76,6 +76,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.text('Add New Clip'), findsOneWidget);
+    expect(find.textContaining('0 characters'), findsOneWidget);
 
     // Close Add dialog
     await tester.tap(find.byIcon(Icons.close_rounded).first);
@@ -84,6 +85,11 @@ void main() {
     // Test opening Settings dialog
     await tester.tap(find.text('Settings'));
     await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.text('Settings & Customization'), findsOneWidget);
+    expect(find.text('Auto-capture clipboard'), findsOneWidget);
+    expect(find.text('Right-click panel to paste'), findsOneWidget);
+    expect(find.text('Drag clip to paste into apps'), findsOneWidget);
 
     // Close Settings dialog
     await tester.tap(find.byIcon(Icons.close_rounded).first);
@@ -96,7 +102,7 @@ void main() {
 
     expect(find.text('About Clip Dock'), findsOneWidget);
     expect(find.text('Mahtab Jack'), findsOneWidget);
-    expect(find.text('v1.0.0'), findsOneWidget);
+    expect(find.text('v1.1.0'), findsWidgets);
     expect(find.text('Visit Profile'), findsOneWidget);
 
     // Close About dialog via top close button
@@ -122,6 +128,9 @@ void main() {
       isDark: false,
       clickRowToCopy: true,
       showCopyButton: false,
+      autoCapture: false,
+      rightClickToPaste: true,
+      dragToPaste: true,
     );
 
     final json = settings.toJson();
@@ -140,6 +149,9 @@ void main() {
     expect(restored.isDark, false);
     expect(restored.clickRowToCopy, true);
     expect(restored.showCopyButton, false);
+    expect(restored.autoCapture, false);
+    expect(restored.rightClickToPaste, true);
+    expect(restored.dragToPaste, true);
   });
 
   test('ClipItem isAuto serialization and deserialization', () {
@@ -160,7 +172,7 @@ void main() {
     expect(restored.content, 'Auto Copied Content');
   });
 
-  testWidgets('Auto clipboard capture detects copied text and saves to Auto tab, moves to All on copy', (WidgetTester tester) async {
+  testWidgets('Auto clipboard capture saves to Auto tab; stays in Auto tab on copy; scissor button moves to All tab', (WidgetTester tester) async {
     tester.view.physicalSize = const Size(500, 800);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
@@ -182,7 +194,7 @@ void main() {
 
     // Simulate external copy event
     simulatedClipboard = 'https://flutter.dev/gems';
-    // Advance time by 700ms to trigger the periodic clipboard timer and pump animations
+    // Advance time by 700ms to trigger periodic clipboard timer and pump animations
     await tester.pump(const Duration(milliseconds: 700));
     await tester.pumpAndSettle();
 
@@ -197,11 +209,23 @@ void main() {
     // In Auto tab, auto-captured clip IS visible
     expect(find.textContaining('https://flutter.dev/gems'), findsOneWidget);
 
-    // Copy the clip from Auto tab using the Copy button -> should move to All tab
+    // Verify Scissor icon is present in Auto tab instead of Star icon
+    expect(find.byIcon(Icons.content_cut_rounded), findsOneWidget);
+
+    // Copy the clip in Auto tab -> clip stays in Auto tab and copies only
     await tester.tap(find.text('Copy'));
     await tester.pumpAndSettle(const Duration(milliseconds: 200));
 
-    expect(find.text('Moved to All tab & copied'), findsOneWidget);
+    expect(find.textContaining('Copied clip #'), findsOneWidget);
+
+    // Still in Auto tab and still 1 item in Auto tab
+    expect(find.textContaining('Auto (1)'), findsOneWidget);
+
+    // Now click Scissor icon -> moves clip to All tab
+    await tester.tap(find.byIcon(Icons.content_cut_rounded));
+    await tester.pumpAndSettle(const Duration(milliseconds: 200));
+
+    expect(find.text('Moved clip to All tab'), findsOneWidget);
 
     // Switch back to All tab
     await tester.ensureVisible(find.textContaining('All ('));

@@ -40,17 +40,45 @@ class HeaderBar extends StatelessWidget {
       ),
       child: Row(
         children: [
-          // Title with Total Count
+          // Title with Total Count and Version
           Expanded(
-            child: Text(
-              'Clip Dock ($totalClips)',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: textColor,
-              ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: Text(
+                    'Clip Dock ($totalClips)',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: textColor,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 5),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 4.5, vertical: 1.5),
+                  decoration: BoxDecoration(
+                    color: isDark ? AppColors.accentCyan.withAlpha(25) : AppColors.accentCyan.withAlpha(20),
+                    borderRadius: BorderRadius.circular(3.5),
+                    border: Border.all(
+                      color: isDark ? AppColors.accentCyan.withAlpha(90) : AppColors.accentCyan.withAlpha(90),
+                      width: 0.8,
+                    ),
+                  ),
+                  child: Text(
+                    'v1.1.0',
+                    style: TextStyle(
+                      fontSize: 8.5,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.2,
+                      color: isDark ? AppColors.accentCyan : const Color(0xFF0284C7),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
           const SizedBox(width: 4),

@@ -363,10 +363,12 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                 ),
                 const SizedBox(height: 10),
 
-                // Scrollable Settings Sections
+                // Scrollable Settings Sections (Scrollbar hidden, scrolling functional)
                 Flexible(
-                  child: SingleChildScrollView(
-                    child: Column(
+                  child: ScrollConfiguration(
+                    behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+                    child: SingleChildScrollView(
+                      child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         // Section 1: Glass & Blur Appearance
@@ -442,7 +444,7 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                         ),
                         const SizedBox(height: 8),
 
-                        // Section 2: Clip Interaction & Copy Behavior
+                        // Section 2: Clipboard & Clip Behavior
                         Container(
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
@@ -454,10 +456,100 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Clip Copy Behavior',
+                                'Clipboard & Interaction Behavior',
                                 style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: textColor),
                               ),
                               const SizedBox(height: 8),
+
+                              // Auto-capture toggle
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Auto-capture clipboard',
+                                          style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: textColor),
+                                        ),
+                                        Text(
+                                          'Automatically save copied text to the Auto tab',
+                                          style: TextStyle(fontSize: 9.5, color: subtextColor),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Switch(
+                                    value: _currentSettings.autoCapture,
+                                    activeThumbColor: isDark ? AppColors.accentCyan : const Color(0xFF0284C7),
+                                    onChanged: (val) {
+                                      _updateSettings(_currentSettings.copyWith(autoCapture: val));
+                                    },
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+
+                              // Right click panel to paste toggle
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Right-click panel to paste',
+                                          style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: textColor),
+                                        ),
+                                        Text(
+                                          'Right-clicking anywhere on the panel pastes from clipboard',
+                                          style: TextStyle(fontSize: 9.5, color: subtextColor),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Switch(
+                                    value: _currentSettings.rightClickToPaste,
+                                    activeThumbColor: isDark ? AppColors.accentCyan : const Color(0xFF0284C7),
+                                    onChanged: (val) {
+                                      _updateSettings(_currentSettings.copyWith(rightClickToPaste: val));
+                                    },
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+
+                              // Drag to paste toggle
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Drag clip to paste into apps',
+                                          style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: textColor),
+                                        ),
+                                        Text(
+                                          'Press & drag any clip onto external windows or inputs',
+                                          style: TextStyle(fontSize: 9.5, color: subtextColor),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Switch(
+                                    value: _currentSettings.dragToPaste,
+                                    activeThumbColor: isDark ? AppColors.accentCyan : const Color(0xFF0284C7),
+                                    onChanged: (val) {
+                                      _updateSettings(_currentSettings.copyWith(dragToPaste: val));
+                                    },
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
 
                               // Click row to copy toggle (default: OFF)
                               Row(
@@ -817,43 +909,47 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
 
                               // Ribbon Preset Color Palette
                               Text('Ribbon Color (Presets & Custom)', style: TextStyle(fontSize: 10.5, color: subtextColor)),
-                              const SizedBox(height: 6),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: _presetColors.map((color) {
-                                  final isSelected = _currentSettings.ribbonColor.toARGB32() == color.toARGB32();
-                                  return GestureDetector(
-                                    onTap: () {
-                                      _hexController.text = _colorToHex(color);
-                                      _updateSettings(_currentSettings.copyWith(ribbonColor: color));
-                                    },
-                                    child: Container(
-                                      width: 22,
-                                      height: 22,
-                                      decoration: BoxDecoration(
-                                        color: color,
-                                        shape: BoxShape.circle,
-                                        border: Border.all(
-                                          color: isSelected
-                                              ? (isDark ? Colors.white : Colors.black)
-                                              : Colors.transparent,
-                                          width: 2,
-                                        ),
-                                        boxShadow: isSelected
-                                            ? [
-                                                BoxShadow(
-                                                  color: color.withAlpha(150),
-                                                  blurRadius: 6,
-                                                  spreadRadius: 1,
-                                                )
-                                              ]
-                                            : null,
-                                      ),
-                                    ),
-                                  );
-                                }).toList(),
-                              ),
                               const SizedBox(height: 8),
+                              Center(
+                                child: Wrap(
+                                  alignment: WrapAlignment.center,
+                                  spacing: 12,
+                                  runSpacing: 8,
+                                  children: _presetColors.map((color) {
+                                    final isSelected = _currentSettings.ribbonColor.toARGB32() == color.toARGB32();
+                                    return GestureDetector(
+                                      onTap: () {
+                                        _hexController.text = _colorToHex(color);
+                                        _updateSettings(_currentSettings.copyWith(ribbonColor: color));
+                                      },
+                                      child: Container(
+                                        width: 24,
+                                        height: 24,
+                                        decoration: BoxDecoration(
+                                          color: color,
+                                          shape: BoxShape.circle,
+                                          border: Border.all(
+                                            color: isSelected
+                                                ? (isDark ? Colors.white : Colors.black)
+                                                : (isDark ? Colors.white24 : Colors.black12),
+                                            width: isSelected ? 2.2 : 1,
+                                          ),
+                                          boxShadow: isSelected
+                                              ? [
+                                                  BoxShadow(
+                                                    color: color.withAlpha(160),
+                                                    blurRadius: 7,
+                                                    spreadRadius: 1,
+                                                  )
+                                                ]
+                                              : null,
+                                        ),
+                                      ),
+                                    );
+                                  }).toList(),
+                                ),
+                              ),
+                              const SizedBox(height: 10),
 
                               // Custom Editable HEX Color Input
                               Container(
@@ -1066,6 +1162,7 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                     ),
                   ),
                 ),
+              ),
 
                 // Status notification message
                 if (_statusMessage != null) ...[

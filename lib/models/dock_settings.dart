@@ -14,6 +14,9 @@ class DockSettings {
   bool isDark;
   bool clickRowToCopy; // default: false
   bool showCopyButton; // default: true
+  bool autoCapture; // default: true (auto-save clipboard to Auto tab)
+  bool rightClickToPaste; // default: true (right-click panel to paste from clipboard)
+  bool dragToPaste; // default: true (drag clip to paste into apps)
 
   DockSettings({
     this.opacity = 1.0,
@@ -29,6 +32,9 @@ class DockSettings {
     this.isDark = true,
     this.clickRowToCopy = false,
     this.showCopyButton = true,
+    this.autoCapture = true,
+    this.rightClickToPaste = true,
+    this.dragToPaste = true,
   });
 
   DockSettings copyWith({
@@ -45,6 +51,9 @@ class DockSettings {
     bool? isDark,
     bool? clickRowToCopy,
     bool? showCopyButton,
+    bool? autoCapture,
+    bool? rightClickToPaste,
+    bool? dragToPaste,
   }) {
     return DockSettings(
       opacity: opacity ?? this.opacity,
@@ -60,6 +69,9 @@ class DockSettings {
       isDark: isDark ?? this.isDark,
       clickRowToCopy: clickRowToCopy ?? this.clickRowToCopy,
       showCopyButton: showCopyButton ?? this.showCopyButton,
+      autoCapture: autoCapture ?? this.autoCapture,
+      rightClickToPaste: rightClickToPaste ?? this.rightClickToPaste,
+      dragToPaste: dragToPaste ?? this.dragToPaste,
     );
   }
 
@@ -78,6 +90,9 @@ class DockSettings {
       'isDark': isDark,
       'clickRowToCopy': clickRowToCopy,
       'showCopyButton': showCopyButton,
+      'autoCapture': autoCapture,
+      'rightClickToPaste': rightClickToPaste,
+      'dragToPaste': dragToPaste,
     };
   }
 
@@ -96,7 +111,9 @@ class DockSettings {
       isDark: json['isDark'] as bool? ?? true,
       clickRowToCopy: json['clickRowToCopy'] as bool? ?? false,
       showCopyButton: json['showCopyButton'] as bool? ?? true,
+      autoCapture: json['autoCapture'] as bool? ?? true,
+      rightClickToPaste: json['rightClickToPaste'] as bool? ?? true,
+      dragToPaste: json['dragToPaste'] as bool? ?? true,
     );
   }
 }
-

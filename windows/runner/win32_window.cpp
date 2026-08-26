@@ -146,7 +146,8 @@ bool Win32Window::Create(const std::wstring& title,
   UINT dpi = FlutterDesktopGetDpiForMonitor(monitor);
   double scale_factor = dpi / 96.0;
 
-  HWND window = CreateWindow(
+  HWND window = CreateWindowEx(
+      WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
       window_class, title.c_str(), WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
       Scale(origin.x, scale_factor), Scale(origin.y, scale_factor),
       Scale(size.width, scale_factor), Scale(size.height, scale_factor),
@@ -156,13 +157,18 @@ bool Win32Window::Create(const std::wstring& title,
     return false;
   }
 
+  COLORREF border_color = DWMWA_COLOR_NONE;
+  DwmSetWindowAttribute(window, DWMWA_BORDER_COLOR, &border_color, sizeof(border_color));
+  DWORD corner_pref = DWMWCP_DONOTROUND;
+  DwmSetWindowAttribute(window, DWMWA_WINDOW_CORNER_PREFERENCE, &corner_pref, sizeof(corner_pref));
+
   UpdateTheme(window);
 
   return OnCreate();
 }
 
 bool Win32Window::Show() {
-  return ShowWindow(window_handle_, SW_SHOWNORMAL);
+  return ShowWindow(window_handle_, SW_SHOWNOACTIVATE);
 }
 
 // static
@@ -191,6 +197,16 @@ Win32Window::MessageHandler(HWND hwnd,
                             WPARAM const wparam,
                             LPARAM const lparam) noexcept {
   switch (message) {
+    case WM_MOUSEACTIVATE:
+      return MA_NOACTIVATE;
+
+    case WM_NCCALCSIZE: {
+      if (wparam == TRUE) {
+        return 0;
+      }
+      break;
+    }
+
     case WM_DESTROY:
       window_handle_ = nullptr;
       Destroy();
@@ -249,6 +265,16 @@ Win32Window::MessageHandler(HWND hwnd,
     case WM_DWMCOLORIZATIONCOLORCHANGED:
       UpdateTheme(hwnd);
       return 0;
+  }
+
+  static UINT s_taskbar_created_msg = 0;
+  if (s_taskbar_created_msg == 0) {
+    s_taskbar_created_msg = RegisterWindowMessageW(L"TaskbarCreated");
+  }
+  if (s_taskbar_created_msg != 0 && message == s_taskbar_created_msg) {
+    LONG_PTR exStyle = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
+    SetWindowLongPtr(hwnd, GWL_EXSTYLE, exStyle | WS_EX_TOOLWINDOW);
+    return 0;
   }
 
   return DefWindowProc(window_handle_, message, wparam, lparam);

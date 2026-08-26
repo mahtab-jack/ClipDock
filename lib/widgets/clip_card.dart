@@ -9,13 +9,16 @@ class ClipCard extends StatefulWidget {
   final ClipItem item;
   final bool isDark;
   final bool isTrash;
+  final bool isAuto;
   final bool clickRowToCopy;
   final bool showCopyButton;
+  final bool dragToPaste;
   final Function(String message)? onNotify;
   final VoidCallback? onCopy;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
   final VoidCallback? onToggleStar;
+  final VoidCallback? onMoveToAll;
   final VoidCallback? onRestore;
   final VoidCallback? onDeleteForever;
 
@@ -25,13 +28,16 @@ class ClipCard extends StatefulWidget {
     required this.item,
     required this.isDark,
     this.isTrash = false,
+    this.isAuto = false,
     this.clickRowToCopy = false,
     this.showCopyButton = true,
+    this.dragToPaste = true,
     this.onNotify,
     this.onCopy,
     this.onEdit,
     this.onDelete,
     this.onToggleStar,
+    this.onMoveToAll,
     this.onRestore,
     this.onDeleteForever,
   });
@@ -41,6 +47,7 @@ class ClipCard extends StatefulWidget {
 }
 
 class _ClipCardState extends State<ClipCard> {
+  static const MethodChannel _dragDropChannel = MethodChannel('cnote/drag_drop');
   bool _isCopied = false;
   bool _isHovered = false;
   Timer? _copiedResetTimer;
@@ -73,6 +80,16 @@ class _ClipCardState extends State<ClipCard> {
     });
   }
 
+  void _startNativeDrag() {
+    if (!widget.dragToPaste || widget.isTrash) return;
+    try {
+      Clipboard.setData(ClipboardData(text: widget.item.content));
+      _dragDropChannel.invokeMethod('startDragText', {
+        'text': widget.item.content,
+      });
+    } catch (_) {}
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = widget.isDark;
@@ -87,7 +104,7 @@ class _ClipCardState extends State<ClipCard> {
     final textColor = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
     final subtextColor = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
 
-    return MouseRegion(
+    final cardContent = MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),
       onExit: (_) => setState(() => _isHovered = false),
       child: AnimatedContainer(
@@ -143,7 +160,7 @@ class _ClipCardState extends State<ClipCard> {
             ),
             const SizedBox(width: 8),
 
-            // Content & Time (Clickable to Copy only if enabled)
+            // Content & Time + Character Count (Clickable to Copy only if enabled)
             Expanded(
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
@@ -164,7 +181,7 @@ class _ClipCardState extends State<ClipCard> {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      widget.item.timeAgo,
+                      '${widget.item.timeAgo} • ${widget.item.content.length} chars',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -214,21 +231,40 @@ class _ClipCardState extends State<ClipCard> {
                   ),
                 ),
             ] else ...[
-              // Active Mode: Star / Favorite Button
-              Tooltip(
-                message: widget.item.isStarred ? 'Unstar clip' : 'Star clip',
-                child: IconButton(
-                  onPressed: widget.onToggleStar,
-                  iconSize: 15,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
-                  splashRadius: 11,
-                  icon: Icon(
-                    widget.item.isStarred ? Icons.star_rounded : Icons.star_outline_rounded,
-                    color: widget.item.isStarred ? AppColors.accentAmber : subtextColor,
+              // Auto Mode: Scissor Icon to Move to All tab
+              if (widget.isAuto) ...[
+                if (widget.onMoveToAll != null)
+                  Tooltip(
+                    message: 'Move to All tab',
+                    child: IconButton(
+                      onPressed: widget.onMoveToAll,
+                      iconSize: 14,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
+                      splashRadius: 11,
+                      icon: Icon(
+                        Icons.content_cut_rounded,
+                        color: isDark ? AppColors.accentSilver : AppColors.lightHandle,
+                      ),
+                    ),
+                  ),
+              ] else ...[
+                // Normal Active Mode: Star / Favorite Button
+                Tooltip(
+                  message: widget.item.isStarred ? 'Unstar clip' : 'Star clip',
+                  child: IconButton(
+                    onPressed: widget.onToggleStar,
+                    iconSize: 15,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
+                    splashRadius: 11,
+                    icon: Icon(
+                      widget.item.isStarred ? Icons.star_rounded : Icons.star_outline_rounded,
+                      color: widget.item.isStarred ? AppColors.accentAmber : subtextColor,
+                    ),
                   ),
                 ),
-              ),
+              ],
 
               // Active Mode: Edit Button
               if (widget.onEdit != null)
@@ -323,6 +359,81 @@ class _ClipCardState extends State<ClipCard> {
           ],
         ),
       ),
+    );
+
+    if (!widget.dragToPaste || widget.isTrash) {
+      return cardContent;
+    }
+
+    return Draggable<ClipItem>(
+      data: widget.item,
+      onDragStarted: _startNativeDrag,
+      feedback: Material(
+        color: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF0F172A).withAlpha(240) : Colors.white.withAlpha(240),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: isDark ? AppColors.accentCyan : const Color(0xFF0284C7),
+              width: 1.5,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withAlpha(90),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.drag_indicator_rounded,
+                size: 15,
+                color: isDark ? AppColors.accentCyan : const Color(0xFF0284C7),
+              ),
+              const SizedBox(width: 6),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 160),
+                child: Text(
+                  widget.item.title.isNotEmpty ? widget.item.title : widget.item.content,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.white12 : Colors.black12,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  '${widget.item.content.length} chars',
+                  style: TextStyle(
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.w600,
+                    color: isDark ? AppColors.accentSilver : AppColors.lightTextSecondary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      childWhenDragging: Opacity(
+        opacity: 0.35,
+        child: cardContent,
+      ),
+      child: cardContent,
     );
   }
 }

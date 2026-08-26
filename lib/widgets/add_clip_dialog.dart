@@ -25,7 +25,18 @@ class _AddClipDialogState extends State<AddClipDialog> {
   String? _errorText;
 
   @override
+  void initState() {
+    super.initState();
+    _contentController.addListener(_onContentChanged);
+  }
+
+  void _onContentChanged() {
+    setState(() {});
+  }
+
+  @override
   void dispose() {
+    _contentController.removeListener(_onContentChanged);
     _titleController.dispose();
     _contentController.dispose();
     super.dispose();
@@ -63,6 +74,8 @@ class _AddClipDialogState extends State<AddClipDialog> {
     final cardBg = isDark
         ? Color.fromARGB((widget.settings.opacity * 220).round().clamp(0, 255), 14, 14, 14)
         : Color.fromARGB((widget.settings.opacity * 200).round().clamp(0, 255), 255, 255, 255);
+
+    final charCount = _contentController.text.length;
 
     return Dialog(
       backgroundColor: Colors.transparent,
@@ -154,16 +167,32 @@ class _AddClipDialogState extends State<AddClipDialog> {
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle),
                   ),
-                  child: TextField(
-                    controller: _contentController,
-                    maxLines: 4,
-                    style: TextStyle(fontSize: 12, color: textColor),
-                    decoration: InputDecoration(
-                      hintText: 'Type or paste the text content here...',
-                      hintStyle: TextStyle(fontSize: 11, color: subtextColor),
-                      border: InputBorder.none,
-                      contentPadding: const EdgeInsets.all(10),
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      TextField(
+                        controller: _contentController,
+                        maxLines: 4,
+                        style: TextStyle(fontSize: 12, color: textColor),
+                        decoration: InputDecoration(
+                          hintText: 'Type or paste the text content here...',
+                          hintStyle: TextStyle(fontSize: 11, color: subtextColor),
+                          border: InputBorder.none,
+                          contentPadding: const EdgeInsets.fromLTRB(10, 10, 10, 6),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(10, 0, 10, 6),
+                        child: Text(
+                          '$charCount ${charCount == 1 ? 'character' : 'characters'}',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w500,
+                            color: subtextColor.withAlpha(160),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
 

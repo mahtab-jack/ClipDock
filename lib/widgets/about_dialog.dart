@@ -155,7 +155,7 @@ class _AboutDialogWidgetState extends State<AboutDialogWidget> {
                               ),
                             ),
                             child: Text(
-                              'v1.0.0',
+                              'v1.1.0',
                               style: TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.w700,

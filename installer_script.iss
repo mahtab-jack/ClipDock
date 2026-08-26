@@ -1,8 +1,8 @@
 ; Inno Setup Script for Clip Dock (cNote)
-; Output file will be created in build\installer\ClipDock-Setup-v1.0.0.exe
+; Output file will be created in build\installer\ClipDock-Setup-v1.1.0.exe
 
 #define MyAppName "Clip Dock"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "Mahtab Jack"
 #define MyAppURL "https://github.com/mahtab-jack"
 #define MyAppExeName "cnote.exe"
@@ -18,7 +18,7 @@ AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf}\ClipDock
 DisableProgramGroupPage=yes
 OutputDir=build\installer
-OutputBaseFilename=ClipDock-Setup-v1.0.0
+OutputBaseFilename=ClipDock-Setup-v1.1.0
 SetupIconFile=windows\runner\resources\app_icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma
@@ -42,7 +42,6 @@ Source: "build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: ignorever
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
-Name: "{userstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: startupicon
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: "ClipDock"; ValueType: string; ValueData: """{app}\{#MyAppExeName}"""; Tasks: startupicon; Flags: uninsdeletevalue
