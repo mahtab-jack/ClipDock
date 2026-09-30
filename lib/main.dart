@@ -22,8 +22,8 @@ void main() async {
 
     const WindowOptions windowOptions = WindowOptions(
       size: Size(windowWidth, windowHeight),
-      minimumSize: Size(400.0, windowHeight),
-      maximumSize: Size(450.0, windowHeight),
+      minimumSize: Size(320.0, windowHeight),
+      maximumSize: Size(1200.0, windowHeight),
       center: false,
       backgroundColor: Colors.transparent,
       skipTaskbar: true, // Hidden from Windows Taskbar and Alt+Tab
@@ -43,8 +43,8 @@ void main() async {
       }
 
       await windowManager.setSize(const Size(windowWidth, windowHeight));
-      await windowManager.setMinimumSize(const Size(400.0, windowHeight));
-      await windowManager.setMaximumSize(const Size(450.0, windowHeight));
+      await windowManager.setMinimumSize(const Size(320.0, windowHeight));
+      await windowManager.setMaximumSize(const Size(1200.0, windowHeight));
       await windowManager.setMovable(false);
       await windowManager.setResizable(false);
       await windowManager.setAsFrameless();
@@ -66,14 +66,16 @@ class ClipDockApp extends StatefulWidget {
   State<ClipDockApp> createState() => _ClipDockAppState();
 }
 
-class _ClipDockAppState extends State<ClipDockApp> with TrayListener {
+class _ClipDockAppState extends State<ClipDockApp> with TrayListener, WindowListener {
   ThemeMode _themeMode = ThemeMode.dark;
+  bool _isWindowVisible = true;
 
   @override
   void initState() {
     super.initState();
     _loadTheme();
     if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+      windowManager.addListener(this);
       trayManager.addListener(this);
       _initSystemTray();
     }
@@ -91,6 +93,7 @@ class _ClipDockAppState extends State<ClipDockApp> with TrayListener {
   @override
   void dispose() {
     if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+      windowManager.removeListener(this);
       trayManager.removeListener(this);
     }
     super.dispose();
@@ -118,49 +121,144 @@ class _ClipDockAppState extends State<ClipDockApp> with TrayListener {
       }
 
       await trayManager.setIcon(iconPath);
-      final Menu menu = Menu(
-        items: [
-          MenuItem(
-            key: 'maximize_minimize',
-            label: 'Maximize/Minimize',
-          ),
-          MenuItem.separator(),
-          MenuItem(
-            key: 'exit_app',
-            label: 'Exit',
-          ),
-        ],
-      );
-      await trayManager.setContextMenu(menu);
+      await _updateTrayMenu();
       await trayManager.setToolTip('Clip Dock');
     } catch (_) {}
   }
 
-  @override
-  void onTrayIconMouseDown() {
-    dockKey.currentState?.toggleDock();
+  Future<void> _updateTrayMenu() async {
+    try {
+      final isPinned = dockKey.currentState?.isPinned ?? false;
+      final Menu menu = Menu(
+        items: [
+          if (_isWindowVisible)
+            MenuItem(
+              key: 'hide_dock',
+              label: 'Hide / Minimize Clip Dock',
+            )
+          else
+            MenuItem(
+              key: 'show_dock',
+              label: 'Show / Open Clip Dock',
+            ),
+          MenuItem(
+            key: 'quick_add',
+            label: 'Quick Add Clip (+)',
+          ),
+          MenuItem(
+            key: 'toggle_pin',
+            label: isPinned ? 'Unpin Dock (Auto-Hide)' : 'Pin Dock (Keep Open)',
+          ),
+          MenuItem.separator(),
+          MenuItem(
+            key: 'settings',
+            label: 'Settings',
+          ),
+          MenuItem(
+            key: 'about',
+            label: 'About Clip Dock',
+          ),
+          MenuItem.separator(),
+          MenuItem(
+            key: 'exit_app',
+            label: 'Quit Clip Dock',
+          ),
+        ],
+      );
+      await trayManager.setContextMenu(menu);
+    } catch (_) {}
+  }
+
+  Future<void> _minimizeWindow() async {
+    setState(() {
+      _isWindowVisible = false;
+    });
+    try {
+      await windowManager.hide();
+      await _updateTrayMenu();
+    } catch (_) {}
+  }
+
+  Future<void> _showWindow() async {
+    setState(() {
+      _isWindowVisible = true;
+    });
+    try {
+      await windowManager.show();
+      await windowManager.focus();
+      await _updateTrayMenu();
+      dockKey.currentState?.expandDockFromTray();
+    } catch (_) {}
   }
 
   @override
-  void onTrayIconRightMouseDown() {
-    trayManager.popUpContextMenu();
+  void onWindowMinimize() {
+    _minimizeWindow();
+  }
+
+  @override
+  void onWindowRestore() {
+    setState(() {
+      _isWindowVisible = true;
+    });
+    _updateTrayMenu();
+  }
+
+  @override
+  void onTrayIconMouseDown() async {
+    if (!_isWindowVisible) {
+      await _showWindow();
+    } else {
+      dockKey.currentState?.toggleDock();
+    }
+  }
+
+  @override
+  void onTrayIconRightMouseDown() async {
+    await _updateTrayMenu();
+    await trayManager.popUpContextMenu();
   }
 
   @override
   void onTrayMenuItemClick(MenuItem menuItem) async {
-    if (menuItem.key == 'maximize_minimize') {
-      try {
-        final isMinimized = await windowManager.isMinimized();
-        if (isMinimized) {
-          await windowManager.restore();
-          await windowManager.show();
-          await windowManager.focus();
-        } else {
-          await windowManager.minimize();
-        }
-      } catch (_) {}
-    } else if (menuItem.key == 'exit_app') {
-      windowManager.close();
+    switch (menuItem.key) {
+      case 'show_dock':
+        await _showWindow();
+        break;
+      case 'hide_dock':
+        await _minimizeWindow();
+        break;
+      case 'quick_add':
+        _isWindowVisible = true;
+        await windowManager.show();
+        await windowManager.focus();
+        await _updateTrayMenu();
+        dockKey.currentState?.expandDockAndAddClip();
+        break;
+      case 'toggle_pin':
+        _isWindowVisible = true;
+        await windowManager.show();
+        await windowManager.focus();
+        dockKey.currentState?.togglePinFromTray();
+        await _updateTrayMenu();
+        break;
+      case 'settings':
+        _isWindowVisible = true;
+        await windowManager.show();
+        await windowManager.focus();
+        await _updateTrayMenu();
+        dockKey.currentState?.openSettingsFromTray();
+        break;
+      case 'about':
+        _isWindowVisible = true;
+        await windowManager.show();
+        await windowManager.focus();
+        await _updateTrayMenu();
+        dockKey.currentState?.openAboutFromTray();
+        break;
+      case 'exit_app':
+        await windowManager.close();
+        break;
     }
   }
 
@@ -169,9 +267,14 @@ class _ClipDockAppState extends State<ClipDockApp> with TrayListener {
     setState(() {
       _themeMode = newMode;
     });
+    final isDark = newMode == ThemeMode.dark;
     final settings = await DatabaseService.loadSettings();
-    settings.isDark = newMode == ThemeMode.dark;
+    settings.isDark = isDark;
+    if (settings.autoRibbonColor) {
+      settings.ribbonColor = isDark ? const Color(0xFF000000) : const Color(0xFFFFFFFF);
+    }
     await DatabaseService.saveSettings(settings);
+    dockKey.currentState?.updateSettingsFromExternal(settings);
   }
 
   @override
@@ -190,6 +293,7 @@ class _ClipDockAppState extends State<ClipDockApp> with TrayListener {
           key: dockKey,
           isDark: isDark,
           onToggleTheme: _toggleTheme,
+          onMinimize: _minimizeWindow,
         ),
       ),
     );

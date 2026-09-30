@@ -6,6 +6,155 @@
 #include "flutter/generated_plugin_registrant.h"
 #include "drag_drop_helper.h"
 
+static HWND g_last_external_window = NULL;
+static HWND g_last_external_focus = NULL;
+
+static void RecordForegroundWindow(HWND self_hwnd) {
+  HWND fg = GetForegroundWindow();
+  if (fg != NULL && fg != self_hwnd && GetAncestor(fg, GA_ROOT) != self_hwnd) {
+    g_last_external_window = fg;
+
+    DWORD target_thread = GetWindowThreadProcessId(fg, NULL);
+    GUITHREADINFO gui_info = {};
+    gui_info.cbSize = sizeof(GUITHREADINFO);
+    if (GetGUIThreadInfo(target_thread, &gui_info)) {
+      if (gui_info.hwndFocus && IsWindow(gui_info.hwndFocus)) {
+        g_last_external_focus = gui_info.hwndFocus;
+      } else if (gui_info.hwndCaret && IsWindow(gui_info.hwndCaret)) {
+        g_last_external_focus = gui_info.hwndCaret;
+      }
+    }
+  }
+}
+
+static void PasteTextIntoWindow(HWND self_hwnd, const std::wstring& wide_text) {
+  // 1. Put text on Windows Clipboard
+  if (OpenClipboard(self_hwnd)) {
+    EmptyClipboard();
+    size_t byte_count = (wide_text.size() + 1) * sizeof(wchar_t);
+    HGLOBAL hg = GlobalAlloc(GMEM_MOVEABLE, byte_count);
+    if (hg) {
+      void* locked = GlobalLock(hg);
+      if (locked) {
+        memcpy(locked, wide_text.c_str(), byte_count);
+        GlobalUnlock(hg);
+        SetClipboardData(CF_UNICODETEXT, hg);
+      }
+    }
+    CloseClipboard();
+  }
+
+  // 2. Identify target window
+  HWND target_hwnd = g_last_external_window;
+  if (target_hwnd == NULL || !IsWindow(target_hwnd)) {
+    HWND fg = GetForegroundWindow();
+    if (fg != NULL && fg != self_hwnd && GetAncestor(fg, GA_ROOT) != self_hwnd) {
+      target_hwnd = fg;
+    }
+  }
+
+  if (target_hwnd == NULL || !IsWindow(target_hwnd)) {
+    return;
+  }
+
+  DWORD current_thread = GetCurrentThreadId();
+  DWORD target_thread = GetWindowThreadProcessId(target_hwnd, NULL);
+
+  // 3. Attach thread input so focus and keystrokes can be transferred
+  BOOL attached = FALSE;
+  if (current_thread != target_thread) {
+    attached = AttachThreadInput(current_thread, target_thread, TRUE);
+  }
+
+  AllowSetForegroundWindow(ASFW_ANY);
+
+  // 4. Reactivate target window and restore focus
+  SetForegroundWindow(target_hwnd);
+  SetActiveWindow(target_hwnd);
+  BringWindowToTop(target_hwnd);
+
+  HWND focus_target = g_last_external_focus;
+  if (focus_target != NULL && IsWindow(focus_target)) {
+    SetFocus(focus_target);
+  } else {
+    SetFocus(target_hwnd);
+  }
+
+  // 5. Short sleep while thread input remains ATTACHED
+  Sleep(45);
+
+  // 6. Simulate Ctrl+V using hardware scan codes and keybd_event & SendInput
+  // Ctrl DOWN
+  keybd_event(VK_CONTROL, 0x1D, 0, 0);
+  Sleep(15);
+  // V DOWN
+  keybd_event('V', 0x2F, 0, 0);
+  Sleep(15);
+  // V UP
+  keybd_event('V', 0x2F, KEYEVENTF_KEYUP, 0);
+  Sleep(15);
+  // Ctrl UP
+  keybd_event(VK_CONTROL, 0x1D, KEYEVENTF_KEYUP, 0);
+
+  Sleep(25);
+
+  // 7. Detach thread input AFTER key events are processed
+  if (attached) {
+    AttachThreadInput(current_thread, target_thread, FALSE);
+  }
+}
+
+typedef enum _ACCENT_STATE {
+    ACCENT_DISABLED = 0,
+    ACCENT_ENABLE_GRADIENT = 1,
+    ACCENT_ENABLE_TRANSPARENTGRADIENT = 2,
+    ACCENT_ENABLE_BLURBEHIND = 3,
+    ACCENT_ENABLE_ACRYLICBLURBEHIND = 4,
+    ACCENT_ENABLE_HOSTBACKDROP = 5,
+    ACCENT_INVALID_STATE = 6
+} ACCENT_STATE;
+
+typedef struct _ACCENT_POLICY {
+    ACCENT_STATE AccentState;
+    DWORD AccentFlags;
+    DWORD GradientColor;
+    DWORD AnimationId;
+} ACCENT_POLICY;
+
+typedef struct _WINDOWCOMPOSITIONATTRIBDATA {
+    DWORD Attrib;
+    PVOID pvData;
+    SIZE_T cbData;
+} WINDOWCOMPOSITIONATTRIBDATA;
+
+typedef BOOL(WINAPI* pfnSetWindowCompositionAttribute)(HWND, WINDOWCOMPOSITIONATTRIBDATA*);
+
+static void SetNativeWindowBlur(HWND hwnd, bool enable, DWORD tintColorABGR = 0x01000000) {
+  HMODULE user32 = GetModuleHandleA("user32.dll");
+  if (!user32) {
+    user32 = LoadLibraryA("user32.dll");
+  }
+  if (user32) {
+    pfnSetWindowCompositionAttribute setWindowCompositionAttribute =
+        (pfnSetWindowCompositionAttribute)GetProcAddress(user32, "SetWindowCompositionAttribute");
+    if (setWindowCompositionAttribute) {
+      ACCENT_POLICY policy = {};
+      if (enable) {
+        policy.AccentState = ACCENT_ENABLE_ACRYLICBLURBEHIND;
+        policy.AccentFlags = 2;
+        policy.GradientColor = tintColorABGR;
+      } else {
+        policy.AccentState = ACCENT_DISABLED;
+      }
+      WINDOWCOMPOSITIONATTRIBDATA data = {};
+      data.Attrib = 19; // WCA_ACCENT_POLICY
+      data.pvData = &policy;
+      data.cbData = sizeof(policy);
+      setWindowCompositionAttribute(hwnd, &data);
+    }
+  }
+}
+
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
     : project_(project) {}
 
@@ -18,25 +167,76 @@ bool FlutterWindow::OnCreate() {
 
   RECT frame = GetClientArea();
 
-  // The size here must match the window dimensions to avoid unnecessary surface
-  // creation / destruction in the startup path.
   flutter_controller_ = std::make_unique<flutter::FlutterViewController>(
       frame.right - frame.left, frame.bottom - frame.top, project_);
-  // Ensure that basic setup of the controller was successful.
   if (!flutter_controller_->engine() || !flutter_controller_->view()) {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
-  // Setup drag & drop method channel
+  // Setup drag & drop and active window paste fill method channel
   drag_drop_channel_ = std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
       flutter_controller_->engine()->messenger(), "cnote/drag_drop",
       &flutter::StandardMethodCodec::GetInstance());
 
+  HWND self_hwnd = GetHandle();
+
+  // Enable initial blur behind window for transparent frosted glass effect
+  SetNativeWindowBlur(self_hwnd, true);
+
   drag_drop_channel_->SetMethodCallHandler(
-      [](const flutter::MethodCall<flutter::EncodableValue>& call,
-         std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
+      [self_hwnd](const flutter::MethodCall<flutter::EncodableValue>& call,
+                  std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
+        if (call.method_name() == "setWindowBlur") {
+          const auto* arguments = std::get_if<flutter::EncodableMap>(call.arguments());
+          bool enable = true;
+          DWORD tintColor = 0x01000000;
+          if (arguments) {
+            auto blur_it = arguments->find(flutter::EncodableValue("enable"));
+            if (blur_it != arguments->end() && std::holds_alternative<bool>(blur_it->second)) {
+              enable = std::get<bool>(blur_it->second);
+            }
+            auto tint_it = arguments->find(flutter::EncodableValue("tintColor"));
+            if (tint_it != arguments->end() && std::holds_alternative<int32_t>(tint_it->second)) {
+              tintColor = static_cast<DWORD>(std::get<int32_t>(tint_it->second));
+            } else if (tint_it != arguments->end() && std::holds_alternative<int64_t>(tint_it->second)) {
+              tintColor = static_cast<DWORD>(std::get<int64_t>(tint_it->second));
+            }
+          }
+          SetNativeWindowBlur(self_hwnd, enable, tintColor);
+          result->Success(flutter::EncodableValue(true));
+          return;
+        }
+        if (call.method_name() == "captureActiveWindow") {
+          RecordForegroundWindow(self_hwnd);
+          result->Success(flutter::EncodableValue(true));
+          return;
+        }
+
+        if (call.method_name() == "fillTextIntoActiveWindow") {
+          const auto* arguments = std::get_if<flutter::EncodableMap>(call.arguments());
+          if (arguments) {
+            auto text_it = arguments->find(flutter::EncodableValue("text"));
+            if (text_it != arguments->end() && std::holds_alternative<std::string>(text_it->second)) {
+              std::string utf8_text = std::get<std::string>(text_it->second);
+              int wlen = MultiByteToWideChar(CP_UTF8, 0, utf8_text.c_str(), -1, nullptr, 0);
+              if (wlen > 0) {
+                std::wstring wide_text(wlen, 0);
+                MultiByteToWideChar(CP_UTF8, 0, utf8_text.c_str(), -1, &wide_text[0], wlen);
+                if (!wide_text.empty() && wide_text.back() == L'\0') {
+                  wide_text.pop_back();
+                }
+                PasteTextIntoWindow(self_hwnd, wide_text);
+              }
+              result->Success(flutter::EncodableValue(true));
+              return;
+            }
+          }
+          result->Error("BAD_ARGS", "Missing text argument");
+          return;
+        }
+
         if (call.method_name() == "startDragText") {
           const auto* arguments = std::get_if<flutter::EncodableMap>(call.arguments());
           if (arguments) {
@@ -57,9 +257,10 @@ bool FlutterWindow::OnCreate() {
             }
           }
           result->Error("BAD_ARGS", "Missing text argument");
-        } else {
-          result->NotImplemented();
+          return;
         }
+
+        result->NotImplemented();
       });
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -87,6 +288,11 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
+  if (message == WM_MOUSEMOVE || message == WM_SETCURSOR || message == WM_NCMOUSEMOVE ||
+      message == WM_MOUSEACTIVATE || message == WM_ACTIVATE) {
+    RecordForegroundWindow(hwnd);
+  }
+
   // Give Flutter, including plugins, an opportunity to handle window messages.
   if (flutter_controller_) {
     std::optional<LRESULT> result =
@@ -100,9 +306,9 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   switch (message) {
     case WM_GETMINMAXINFO: {
       auto info = reinterpret_cast<MINMAXINFO*>(lparam);
-      info->ptMinTrackSize.x = 380;
+      info->ptMinTrackSize.x = 280;
       info->ptMinTrackSize.y = 680;
-      info->ptMaxTrackSize.x = 500;
+      info->ptMaxTrackSize.x = 1400;
       info->ptMaxTrackSize.y = 680;
       return 0;
     }

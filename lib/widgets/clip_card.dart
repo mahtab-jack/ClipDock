@@ -11,6 +11,7 @@ class ClipCard extends StatefulWidget {
   final bool isTrash;
   final bool isAuto;
   final bool clickRowToCopy;
+  final bool clickRowToFill;
   final bool showCopyButton;
   final bool dragToPaste;
   final Function(String message)? onNotify;
@@ -30,6 +31,7 @@ class ClipCard extends StatefulWidget {
     this.isTrash = false,
     this.isAuto = false,
     this.clickRowToCopy = false,
+    this.clickRowToFill = true,
     this.showCopyButton = true,
     this.dragToPaste = true,
     this.onNotify,
@@ -80,6 +82,39 @@ class _ClipCardState extends State<ClipCard> {
     });
   }
 
+  void _fillIntoActiveWindow() {
+    Clipboard.setData(ClipboardData(text: widget.item.content));
+    _copiedResetTimer?.cancel();
+    setState(() {
+      _isCopied = true;
+    });
+
+    try {
+      _dragDropChannel.invokeMethod('fillTextIntoActiveWindow', {
+        'text': widget.item.content,
+      });
+    } catch (_) {}
+
+    widget.onNotify?.call('Filled clip #${widget.serialNo} into active window');
+
+    _copiedResetTimer = Timer(const Duration(milliseconds: 1400), () {
+      if (mounted) {
+        setState(() {
+          _isCopied = false;
+        });
+      }
+    });
+  }
+
+  void _handleRowTap() {
+    if (widget.isTrash) return;
+    if (widget.clickRowToFill) {
+      _fillIntoActiveWindow();
+    } else if (widget.clickRowToCopy) {
+      _copyToClipboard();
+    }
+  }
+
   void _startNativeDrag() {
     if (!widget.dragToPaste || widget.isTrash) return;
     try {
@@ -105,8 +140,12 @@ class _ClipCardState extends State<ClipCard> {
     final subtextColor = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
 
     final cardContent = MouseRegion(
-      onEnter: (_) => setState(() => _isHovered = true),
-      onExit: (_) => setState(() => _isHovered = false),
+      onEnter: (_) {
+        setState(() => _isHovered = true);
+      },
+      onExit: (_) {
+        setState(() => _isHovered = false);
+      },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 160),
         margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 3.5),
@@ -160,11 +199,11 @@ class _ClipCardState extends State<ClipCard> {
             ),
             const SizedBox(width: 8),
 
-            // Content & Time + Character Count (Clickable to Copy only if enabled)
+            // Content & Time + Character Count (Clickable to Fill/Copy if enabled)
             Expanded(
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onTap: widget.clickRowToCopy ? _copyToClipboard : null,
+                onTap: (widget.clickRowToFill || widget.clickRowToCopy) ? _handleRowTap : null,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,

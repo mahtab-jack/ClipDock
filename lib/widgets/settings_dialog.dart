@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/foundation.dart';
@@ -6,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/clip_item.dart';
 import '../models/dock_settings.dart';
+import '../services/database_service.dart';
 import '../services/startup_service.dart';
 import '../theme/app_theme.dart';
 
@@ -14,7 +14,7 @@ class SettingsDialog extends StatefulWidget {
   final List<ClipItem> clips;
   final DockSettings settings;
   final Function(DockSettings updatedSettings) onSettingsChanged;
-  final Function(List<ClipItem> importedClips) onImportClips;
+  final Function(DockSettings? restoredSettings, List<ClipItem> restoredClips) onRestoreBackup;
   final VoidCallback onClearAll;
 
   const SettingsDialog({
@@ -23,7 +23,7 @@ class SettingsDialog extends StatefulWidget {
     required this.clips,
     required this.settings,
     required this.onSettingsChanged,
-    required this.onImportClips,
+    required this.onRestoreBackup,
     required this.onClearAll,
   });
 
@@ -41,14 +41,40 @@ class _SettingsDialogState extends State<SettingsDialog> {
 
   late DockSettings _currentSettings;
 
-  static const List<Color> _presetColors = [
-    Color(0xFFCBD5E1), // Silver
-    Color(0xFF38BDF8), // Cyan
-    Color(0xFF10B981), // Emerald
-    Color(0xFFF43F5E), // Rose
-    Color(0xFFF59E0B), // Amber
-    Color(0xFFA855F7), // Purple
-    Color(0xFFFFFFFF), // Pure White
+  static const List<_ColorOption> _themePresetColors = [
+    _ColorOption(Color(0xFFCBD5E1), 'Auto (Theme Default)', isAuto: true),
+    _ColorOption(Color(0xFFFFFFFF), 'Light Mode (White)', isLight: true),
+    _ColorOption(Color(0xFF000000), 'AMOLED Pitch Black'),
+  ];
+
+  static const List<_ColorOption> _solidColors = [
+    _ColorOption(Color(0xFF38BDF8), 'Cyan Blue'),
+    _ColorOption(Color(0xFF10B981), 'Emerald Green'),
+    _ColorOption(Color(0xFFF43F5E), 'Rose Crimson'),
+    _ColorOption(Color(0xFFF59E0B), 'Amber Gold'),
+    _ColorOption(Color(0xFFA855F7), 'Vivid Purple'),
+    _ColorOption(Color(0xFF2563EB), 'Royal Blue'),
+    _ColorOption(Color(0xFFEF4444), 'Ruby Red'),
+    _ColorOption(Color(0xFFF97316), 'Tangerine Orange'),
+    _ColorOption(Color(0xFF14B8A6), 'Teal Ocean'),
+    _ColorOption(Color(0xFF84CC16), 'Lime Accent'),
+    _ColorOption(Color(0xFF6366F1), 'Indigo Neon'),
+    _ColorOption(Color(0xFFD946EF), 'Fuchsia Glow'),
+  ];
+
+  static const List<_ColorOption> _softPastelColors = [
+    _ColorOption(Color(0xFFDDD6FE), 'Soft Lavender'),
+    _ColorOption(Color(0xFFBAE6FD), 'Soft Ice Blue'),
+    _ColorOption(Color(0xFFA7F3D0), 'Soft Mint'),
+    _ColorOption(Color(0xFFFECDD3), 'Soft Blush'),
+    _ColorOption(Color(0xFFFED7AA), 'Soft Peach'),
+    _ColorOption(Color(0xFFFEF08A), 'Soft Sand'),
+    _ColorOption(Color(0xFFCBD5E1), 'Soft Slate Silver'),
+    _ColorOption(Color(0xFFE9D5FF), 'Pale Mauve'),
+    _ColorOption(Color(0xFF99F6E4), 'Soft Aqua'),
+    _ColorOption(Color(0xFFFBCFE8), 'Muted Pink'),
+    _ColorOption(Color(0xFFE2E8F0), 'Cool Gray'),
+    _ColorOption(Color(0xFFE7E5E4), 'Warm Stone'),
   ];
 
   @override
@@ -72,14 +98,6 @@ class _SettingsDialogState extends State<SettingsDialog> {
       }
     }
     return null;
-  }
-
-  String _getExportFileName() {
-    final now = DateTime.now();
-    final y = now.year;
-    final m = now.month.toString().padLeft(2, '0');
-    final d = now.day.toString().padLeft(2, '0');
-    return 'cNote-$y-$m-$d.json';
   }
 
   Future<void> _loadStartupState() async {
@@ -126,17 +144,9 @@ class _SettingsDialogState extends State<SettingsDialog> {
     super.dispose();
   }
 
-  Future<void> _exportToFile() async {
-    if (widget.clips.isEmpty) {
-      setState(() {
-        _statusMessage = 'No clips to export';
-      });
-      return;
-    }
-
-    final fileName = _getExportFileName();
-    final jsonList = widget.clips.map((c) => c.toJson()).toList();
-    final jsonStr = const JsonEncoder.withIndent('  ').convert(jsonList);
+  Future<void> _exportBackup() async {
+    final fileName = 'ClipDock-Backup-${DateTime.now().year}-${DateTime.now().month.toString().padLeft(2, '0')}-${DateTime.now().day.toString().padLeft(2, '0')}.json';
+    final jsonStr = DatabaseService.createBackupJsonString(_currentSettings, widget.clips);
 
     String? savePath;
     if (!kIsWeb && Platform.isWindows) {
@@ -148,9 +158,9 @@ class _SettingsDialogState extends State<SettingsDialog> {
           '''
 Add-Type -AssemblyName System.Windows.Forms
 \$sfd = New-Object System.Windows.Forms.SaveFileDialog
-\$sfd.Filter = "JSON files (*.json)|*.json|All files (*.*)|*.*"
+\$sfd.Filter = "JSON Backup (*.json)|*.json|All files (*.*)|*.*"
 \$sfd.FileName = "$fileName"
-\$sfd.Title = "Export cNote Clips"
+\$sfd.Title = "Export Clip Dock Backup"
 if (\$sfd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
   Write-Output \$sfd.FileName
 }
@@ -165,7 +175,6 @@ if (\$sfd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
       } catch (_) {}
     }
 
-    // Default fallback to Downloads if dialog was cancelled or unavailable
     if (savePath == null || savePath.isEmpty) {
       final userProfile = Platform.environment['USERPROFILE'] ?? '';
       final downloadsDir = Directory('$userProfile\\Downloads');
@@ -183,19 +192,19 @@ if (\$sfd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
       final shortName = savePath.split('\\').last;
       if (mounted) {
         setState(() {
-          _statusMessage = 'Exported ${widget.clips.length} clips to $shortName';
+          _statusMessage = 'Backup saved to $shortName';
         });
       }
     } catch (_) {
       if (mounted) {
         setState(() {
-          _statusMessage = 'Failed to write export file';
+          _statusMessage = 'Failed to write backup file';
         });
       }
     }
   }
 
-  Future<void> _importFromFile() async {
+  Future<void> _importBackupFromFile() async {
     String? selectedPath;
     if (!kIsWeb && Platform.isWindows) {
       try {
@@ -206,8 +215,8 @@ if (\$sfd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
           '''
 Add-Type -AssemblyName System.Windows.Forms
 \$ofd = New-Object System.Windows.Forms.OpenFileDialog
-\$ofd.Filter = "JSON files (*.json)|*.json|Text files (*.txt)|*.txt|All files (*.*)|*.*"
-\$ofd.Title = "Import cNote Clips"
+\$ofd.Filter = "JSON Backup (*.json)|*.json|Text files (*.txt)|*.txt|All files (*.*)|*.*"
+\$ofd.Title = "Import Clip Dock Backup"
 if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
   Write-Output \$ofd.FileName
 }
@@ -233,81 +242,58 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
       } catch (_) {}
     }
 
-    // Toggle manual import text field fallback
     setState(() {
       _isImporting = !_isImporting;
-      _statusMessage = _isImporting ? 'Select a file or paste JSON/text below' : null;
+      _statusMessage = _isImporting ? 'Paste backup JSON string below' : null;
     });
   }
 
   void _processImportContent(String raw) {
-    try {
-      final decoded = jsonDecode(raw);
-      if (decoded is List) {
-        final List<ClipItem> newClips = [];
-        for (var entry in decoded) {
-          if (entry is Map<String, dynamic>) {
-            newClips.add(ClipItem.fromJson(entry));
-          } else if (entry is String && entry.trim().isNotEmpty) {
-            newClips.add(ClipItem(
-              id: DateTime.now().millisecondsSinceEpoch.toString(),
-              title: entry.length > 35 ? '${entry.substring(0, 35)}...' : entry,
-              content: entry,
-              createdAt: DateTime.now(),
-            ));
-          }
-        }
-        widget.onImportClips(newClips);
-        Navigator.of(context).pop();
-        return;
+    final restored = DatabaseService.parseBackupJson(raw);
+    if (restored != null && (restored.clips.isNotEmpty || restored.settings != null)) {
+      if (restored.settings != null) {
+        setState(() {
+          _currentSettings = restored.settings!;
+          _hexController.text = _colorToHex(_currentSettings.ribbonColor);
+        });
       }
-    } catch (_) {}
-
-    // Plain text line-by-line fallback
-    final lines = raw.split('\n').where((l) => l.trim().isNotEmpty).toList();
-    if (lines.isNotEmpty) {
-      final List<ClipItem> newClips = lines.map((line) {
-        final trimmed = line.trim();
-        return ClipItem(
-          id: (DateTime.now().millisecondsSinceEpoch + lines.indexOf(line)).toString(),
-          title: trimmed.length > 35 ? '${trimmed.substring(0, 35)}...' : trimmed,
-          content: trimmed,
-          createdAt: DateTime.now(),
-        );
-      }).toList();
-      widget.onImportClips(newClips);
+      widget.onRestoreBackup(restored.settings, restored.clips);
       Navigator.of(context).pop();
-    } else {
-      setState(() {
-        _statusMessage = 'Could not parse import data';
-      });
+      return;
     }
+
+    setState(() {
+      _statusMessage = 'Could not parse backup data';
+    });
   }
 
   void _handleManualImport() {
     final raw = _importController.text.trim();
     if (raw.isEmpty) {
       setState(() {
-        _statusMessage = 'Paste JSON or text clips into the box';
+        _statusMessage = 'Paste backup JSON string into the box';
       });
       return;
     }
     _processImportContent(raw);
   }
 
+  void _openBackupFolder() {
+    DatabaseService.openBackupFolder();
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = widget.isDark;
-    final bgAlpha = (_currentSettings.opacity * 255).round().clamp(0, 255);
     final bgSurface = isDark
-        ? Color.fromARGB(bgAlpha, 0, 0, 0)
-        : Color.fromARGB(bgAlpha, 241, 245, 249);
+        ? const Color(0xF5141414)
+        : const Color(0xF5F8FAFC);
     final textColor = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
     final subtextColor = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
     final borderColor = isDark ? AppColors.darkBorder : AppColors.lightBorder;
     final cardBg = isDark
-        ? Color.fromARGB((_currentSettings.opacity * 220).round().clamp(0, 255), 14, 14, 14)
-        : Color.fromARGB((_currentSettings.opacity * 200).round().clamp(0, 255), 255, 255, 255);
+        ? const Color(0xFF1E1E1E)
+        : const Color(0xFFFFFFFF);
 
     return Dialog(
       backgroundColor: Colors.transparent,
@@ -315,24 +301,26 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
       insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(14),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(
-            sigmaX: _currentSettings.blur,
-            sigmaY: _currentSettings.blur,
+        child: Container(
+          width: double.infinity,
+          constraints: const BoxConstraints(maxHeight: 600),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: bgSurface,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: borderColor, width: 1.2),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withAlpha(120),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
+              ),
+            ],
           ),
-          child: Container(
-            width: 395,
-            constraints: const BoxConstraints(maxHeight: 620),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: bgSurface,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: borderColor, width: 1.2),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
                 // Header
                 Row(
                   children: [
@@ -371,7 +359,7 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                       child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        // Section 1: Glass & Blur Appearance
+                        // Section 1: Glass & Appearance
                         Container(
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
@@ -389,6 +377,7 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                               const SizedBox(height: 8),
 
                               // Opacity / Transparency Slider
+                              // Panel Opacity Slider
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
@@ -414,11 +403,37 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                                 ),
                               ),
 
-                              // Blur Slider
+                              // Glass Transparency Slider
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Text('Background Blur', style: TextStyle(fontSize: 10.5, color: subtextColor)),
+                                  Text('Glass Transparency', style: TextStyle(fontSize: 10.5, color: subtextColor)),
+                                  Text('${(_currentSettings.transparency * 100).round()}%',
+                                      style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: textColor)),
+                                ],
+                              ),
+                              SliderTheme(
+                                data: SliderTheme.of(context).copyWith(
+                                  trackHeight: 3,
+                                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                                ),
+                                child: Slider(
+                                  value: _currentSettings.transparency,
+                                  min: 0.0,
+                                  max: 1.0,
+                                  divisions: 20,
+                                  activeColor: isDark ? AppColors.accentSilver : AppColors.lightHandle,
+                                  onChanged: (val) {
+                                    _updateSettings(_currentSettings.copyWith(transparency: val));
+                                  },
+                                ),
+                              ),
+
+                              // Panel Blur Slider
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text('Panel Blur', style: TextStyle(fontSize: 10.5, color: subtextColor)),
                                   Text('${_currentSettings.blur.round()} px',
                                       style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: textColor)),
                                 ],
@@ -439,12 +454,169 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                                   },
                                 ),
                               ),
+
+                              // Panel Width Slider
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text('Panel Width', style: TextStyle(fontSize: 10.5, color: subtextColor)),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: isDark ? AppColors.darkGlassSurface : AppColors.lightGlassSurface,
+                                      borderRadius: BorderRadius.circular(4),
+                                      border: Border.all(color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle),
+                                    ),
+                                    child: Text(
+                                      '${_currentSettings.panelWidth.round()} px',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w700,
+                                        color: _currentSettings.panelWidth == 400.0
+                                            ? subtextColor
+                                            : (isDark ? AppColors.accentCyan : const Color(0xFF0284C7)),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Row(
+                                children: [
+                                  // [-] Step Button (-10px, long press -25px)
+                                  Tooltip(
+                                    message: 'Decrease 10px (Long press 25px)',
+                                    child: Material(
+                                      color: Colors.transparent,
+                                      child: InkWell(
+                                        onTap: () {
+                                          final newVal = (_currentSettings.panelWidth - 10.0).clamp(320.0, 600.0);
+                                          _updateSettings(_currentSettings.copyWith(panelWidth: newVal));
+                                        },
+                                        onLongPress: () {
+                                          final newVal = (_currentSettings.panelWidth - 25.0).clamp(320.0, 600.0);
+                                          _updateSettings(_currentSettings.copyWith(panelWidth: newVal));
+                                        },
+                                        borderRadius: BorderRadius.circular(6),
+                                        child: Container(
+                                          width: 28,
+                                          height: 28,
+                                          alignment: Alignment.center,
+                                          decoration: BoxDecoration(
+                                            color: isDark ? AppColors.darkGlassSurface : AppColors.lightGlassSurface,
+                                            borderRadius: BorderRadius.circular(6),
+                                            border: Border.all(color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle),
+                                          ),
+                                          child: Text(
+                                            '-',
+                                            style: TextStyle(
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.w700,
+                                              color: textColor,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+
+                                  // Slider (320 to 600 px)
+                                  Expanded(
+                                    child: SliderTheme(
+                                      data: SliderTheme.of(context).copyWith(
+                                        trackHeight: 3,
+                                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                                      ),
+                                      child: Slider(
+                                        value: _currentSettings.panelWidth,
+                                        min: 320.0,
+                                        max: 600.0,
+                                        divisions: 28,
+                                        activeColor: isDark ? AppColors.accentCyan : const Color(0xFF0284C7),
+                                        onChanged: (val) {
+                                          _updateSettings(_currentSettings.copyWith(panelWidth: val.roundToDouble()));
+                                        },
+                                      ),
+                                    ),
+                                  ),
+
+                                  // [+] Step Button (+10px, long press +25px)
+                                  Tooltip(
+                                    message: 'Increase 10px (Long press 25px)',
+                                    child: Material(
+                                      color: Colors.transparent,
+                                      child: InkWell(
+                                        onTap: () {
+                                          final newVal = (_currentSettings.panelWidth + 10.0).clamp(320.0, 600.0);
+                                          _updateSettings(_currentSettings.copyWith(panelWidth: newVal));
+                                        },
+                                        onLongPress: () {
+                                          final newVal = (_currentSettings.panelWidth + 25.0).clamp(320.0, 600.0);
+                                          _updateSettings(_currentSettings.copyWith(panelWidth: newVal));
+                                        },
+                                        borderRadius: BorderRadius.circular(6),
+                                        child: Container(
+                                          width: 28,
+                                          height: 28,
+                                          alignment: Alignment.center,
+                                          decoration: BoxDecoration(
+                                            color: isDark ? AppColors.darkGlassSurface : AppColors.lightGlassSurface,
+                                            borderRadius: BorderRadius.circular(6),
+                                            border: Border.all(color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle),
+                                          ),
+                                          child: Text(
+                                            '+',
+                                            style: TextStyle(
+                                              fontSize: 15,
+                                              fontWeight: FontWeight.w700,
+                                              color: textColor,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+
+                                  // Reset Button if non-default
+                                  if (_currentSettings.panelWidth != 400.0) ...[
+                                    const SizedBox(width: 6),
+                                    Tooltip(
+                                      message: 'Reset to 400 px',
+                                      child: Material(
+                                        color: Colors.transparent,
+                                        child: InkWell(
+                                          onTap: () {
+                                            _updateSettings(_currentSettings.copyWith(panelWidth: 400.0));
+                                          },
+                                          borderRadius: BorderRadius.circular(6),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+                                            decoration: BoxDecoration(
+                                              color: isDark ? AppColors.darkGlassSurface : AppColors.lightGlassSurface,
+                                              borderRadius: BorderRadius.circular(6),
+                                              border: Border.all(color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle),
+                                            ),
+                                            child: Text(
+                                              'Reset',
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w600,
+                                                color: subtextColor,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
                             ],
                           ),
                         ),
                         const SizedBox(height: 8),
 
-                        // Section 2: Clipboard & Clip Behavior
+                        // Section 2: Clipboard & Interaction Behavior
                         Container(
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
@@ -551,6 +723,36 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                               ),
                               const SizedBox(height: 6),
 
+                              // Click row to fill toggle (default: ON)
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Click row to fill',
+                                          style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: textColor),
+                                        ),
+                                        Text(
+                                          'Clicking a clip fills it directly into the active background window',
+                                          style: TextStyle(fontSize: 9.5, color: subtextColor),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Switch(
+                                    value: _currentSettings.clickRowToFill,
+                                    activeThumbColor: isDark ? AppColors.accentCyan : const Color(0xFF0284C7),
+                                    onChanged: (val) {
+                                      _updateSettings(_currentSettings.copyWith(clickRowToFill: val));
+                                    },
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+
                               // Click row to copy toggle (default: OFF)
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -601,7 +803,7 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                                           _currentSettings.clickRowToCopy
                                               ? 'Show or hide the Copy button on each clip card'
                                               : 'Always enabled when "Click row to copy" is off',
-                                          style: TextStyle(fontSize: 9.5, color: subtextColor),
+                                            style: TextStyle(fontSize: 9.5, color: subtextColor),
                                         ),
                                       ],
                                     ),
@@ -622,7 +824,7 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                         ),
                         const SizedBox(height: 8),
 
-                        // Section 3: Dock Position & Screen Edge Alignment (Horizontal Shift Slider with - and + buttons)
+                        // Section 3: Dock Position & Screen Edge Alignment (Separate Sliders for Visible and Hidden States)
                         Container(
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
@@ -633,174 +835,52 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                    'Position & Edge Alignment',
-                                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: textColor),
-                                  ),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                    decoration: BoxDecoration(
-                                      color: isDark ? AppColors.darkGlassSurface : AppColors.lightGlassSurface,
-                                      borderRadius: BorderRadius.circular(4),
-                                      border: Border.all(color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle),
-                                    ),
-                                    child: Text(
-                                      _currentSettings.edgeOffset == 0.0
-                                          ? '0 px (Default)'
-                                          : (_currentSettings.edgeOffset > 0
-                                              ? '+${_currentSettings.edgeOffset.round()} px (Right)'
-                                              : '${_currentSettings.edgeOffset.round()} px (Left)'),
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w700,
-                                        color: _currentSettings.edgeOffset == 0.0
-                                            ? subtextColor
-                                            : (isDark ? AppColors.accentCyan : const Color(0xFF0284C7)),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 4),
                               Text(
-                                'Slide panel and ribbon left or right (visible and hidden states)',
-                                style: TextStyle(fontSize: 9.5, color: subtextColor),
+                                'Position & Edge Alignment',
+                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: textColor),
                               ),
                               const SizedBox(height: 8),
 
-                              // Stepper with [-] and [+] on both sides and Slider in middle
-                              Row(
-                                children: [
-                                  // [-] Step Button (tap: -1px, long press: -5px)
-                                  Tooltip(
-                                    message: 'Shift Left 1px (Long press 5px)',
-                                    child: Material(
-                                      color: Colors.transparent,
-                                      child: InkWell(
-                                        onTap: () {
-                                          final newVal = (_currentSettings.edgeOffset - 1.0).clamp(-100.0, 100.0);
-                                          _updateSettings(_currentSettings.copyWith(edgeOffset: newVal));
-                                        },
-                                        onLongPress: () {
-                                          final newVal = (_currentSettings.edgeOffset - 5.0).clamp(-100.0, 100.0);
-                                          _updateSettings(_currentSettings.copyWith(edgeOffset: newVal));
-                                        },
-                                        borderRadius: BorderRadius.circular(6),
-                                        child: Container(
-                                          width: 28,
-                                          height: 28,
-                                          alignment: Alignment.center,
-                                          decoration: BoxDecoration(
-                                            color: isDark ? AppColors.darkGlassSurface : AppColors.lightGlassSurface,
-                                            borderRadius: BorderRadius.circular(6),
-                                            border: Border.all(color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle),
-                                          ),
-                                          child: Text(
-                                            '-',
-                                            style: TextStyle(
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.w700,
-                                              color: textColor,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
+                              // Slider 1: Visible Position (When Opened)
+                              _buildOffsetSliderSection(
+                                context: context,
+                                isDark: isDark,
+                                textColor: textColor,
+                                subtextColor: subtextColor,
+                                title: 'Visible Position (Open)',
+                                subtitle: 'Shift dock left or right when open and visible',
+                                value: _currentSettings.edgeOffsetVisible,
+                                onChanged: (val) {
+                                  _updateSettings(_currentSettings.copyWith(edgeOffsetVisible: val));
+                                },
+                                onReset: () {
+                                  _updateSettings(_currentSettings.copyWith(edgeOffsetVisible: 0.0));
+                                },
+                              ),
 
-                                  // Slider (-100 to +100 px, step 1px)
-                                  Expanded(
-                                    child: SliderTheme(
-                                      data: SliderTheme.of(context).copyWith(
-                                        trackHeight: 3,
-                                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                                      ),
-                                      child: Slider(
-                                        value: _currentSettings.edgeOffset,
-                                        min: -100.0,
-                                        max: 100.0,
-                                        divisions: 200,
-                                        activeColor: isDark ? AppColors.accentCyan : const Color(0xFF0284C7),
-                                        onChanged: (val) {
-                                          _updateSettings(_currentSettings.copyWith(edgeOffset: val.roundToDouble()));
-                                        },
-                                      ),
-                                    ),
-                                  ),
+                              const SizedBox(height: 10),
+                              Divider(
+                                height: 1,
+                                thickness: 1,
+                                color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle,
+                              ),
+                              const SizedBox(height: 10),
 
-                                  // [+] Step Button (tap: +1px, long press: +5px)
-                                  Tooltip(
-                                    message: 'Shift Right 1px (Long press 5px)',
-                                    child: Material(
-                                      color: Colors.transparent,
-                                      child: InkWell(
-                                        onTap: () {
-                                          final newVal = (_currentSettings.edgeOffset + 1.0).clamp(-100.0, 100.0);
-                                          _updateSettings(_currentSettings.copyWith(edgeOffset: newVal));
-                                        },
-                                        onLongPress: () {
-                                          final newVal = (_currentSettings.edgeOffset + 5.0).clamp(-100.0, 100.0);
-                                          _updateSettings(_currentSettings.copyWith(edgeOffset: newVal));
-                                        },
-                                        borderRadius: BorderRadius.circular(6),
-                                        child: Container(
-                                          width: 28,
-                                          height: 28,
-                                          alignment: Alignment.center,
-                                          decoration: BoxDecoration(
-                                            color: isDark ? AppColors.darkGlassSurface : AppColors.lightGlassSurface,
-                                            borderRadius: BorderRadius.circular(6),
-                                            border: Border.all(color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle),
-                                          ),
-                                          child: Text(
-                                            '+',
-                                            style: TextStyle(
-                                              fontSize: 15,
-                                              fontWeight: FontWeight.w700,
-                                              color: textColor,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-
-                                  // Reset Button if non-zero
-                                  if (_currentSettings.edgeOffset != 0.0) ...[
-                                    const SizedBox(width: 6),
-                                    Tooltip(
-                                      message: 'Reset to 0 px',
-                                      child: Material(
-                                        color: Colors.transparent,
-                                        child: InkWell(
-                                          onTap: () {
-                                            _updateSettings(_currentSettings.copyWith(edgeOffset: 0.0));
-                                          },
-                                          borderRadius: BorderRadius.circular(6),
-                                          child: Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
-                                            decoration: BoxDecoration(
-                                              color: isDark ? AppColors.darkGlassSurface : AppColors.lightGlassSurface,
-                                              borderRadius: BorderRadius.circular(6),
-                                              border: Border.all(color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle),
-                                            ),
-                                            child: Text(
-                                              'Reset',
-                                              style: TextStyle(
-                                                fontSize: 10,
-                                                fontWeight: FontWeight.w600,
-                                                color: subtextColor,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ],
+                              // Slider 2: Hidden Position (When Closed)
+                              _buildOffsetSliderSection(
+                                context: context,
+                                isDark: isDark,
+                                textColor: textColor,
+                                subtextColor: subtextColor,
+                                title: 'Hidden Position (Closed)',
+                                subtitle: 'Shift ribbon trigger left or right when closed and hidden',
+                                value: _currentSettings.edgeOffsetHidden,
+                                onChanged: (val) {
+                                  _updateSettings(_currentSettings.copyWith(edgeOffsetHidden: val));
+                                },
+                                onReset: () {
+                                  _updateSettings(_currentSettings.copyWith(edgeOffsetHidden: 0.0));
+                                },
                               ),
                             ],
                           ),
@@ -907,80 +987,71 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                               ),
                               const SizedBox(height: 6),
 
-                              // Ribbon Preset Color Palette
-                              Text('Ribbon Color (Presets & Custom)', style: TextStyle(fontSize: 10.5, color: subtextColor)),
-                              const SizedBox(height: 8),
-                              Center(
-                                child: Wrap(
-                                  alignment: WrapAlignment.center,
-                                  spacing: 12,
-                                  runSpacing: 8,
-                                  children: _presetColors.map((color) {
-                                    final isSelected = _currentSettings.ribbonColor.toARGB32() == color.toARGB32();
-                                    return GestureDetector(
-                                      onTap: () {
-                                        _hexController.text = _colorToHex(color);
-                                        _updateSettings(_currentSettings.copyWith(ribbonColor: color));
-                                      },
-                                      child: Container(
-                                        width: 24,
-                                        height: 24,
-                                        decoration: BoxDecoration(
-                                          color: color,
-                                          shape: BoxShape.circle,
-                                          border: Border.all(
-                                            color: isSelected
-                                                ? (isDark ? Colors.white : Colors.black)
-                                                : (isDark ? Colors.white24 : Colors.black12),
-                                            width: isSelected ? 2.2 : 1,
-                                          ),
-                                          boxShadow: isSelected
-                                              ? [
-                                                  BoxShadow(
-                                                    color: color.withAlpha(160),
-                                                    blurRadius: 7,
-                                                    spreadRadius: 1,
-                                                  )
-                                                ]
-                                              : null,
-                                        ),
-                                      ),
-                                    );
-                                  }).toList(),
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-
-                              // Custom Editable HEX Color Input
+                              // Ribbon Color: Clickable Selected Color Dot + HEX Input in One Line
+                              Text('Ribbon Color', style: TextStyle(fontSize: 10.5, color: subtextColor)),
+                              const SizedBox(height: 6),
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                height: 38,
+                                padding: const EdgeInsets.symmetric(horizontal: 8),
                                 decoration: BoxDecoration(
                                   color: isDark ? AppColors.darkGlassSurface : AppColors.lightGlassSurface,
-                                  borderRadius: BorderRadius.circular(6),
+                                  borderRadius: BorderRadius.circular(8),
                                   border: Border.all(color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle),
                                 ),
                                 child: Row(
                                   children: [
-                                    // Live Color Preview Dot
-                                    Container(
-                                      width: 16,
-                                      height: 16,
-                                      decoration: BoxDecoration(
-                                        color: _currentSettings.ribbonColor,
-                                        shape: BoxShape.circle,
-                                        border: Border.all(color: isDark ? Colors.white54 : Colors.black26),
+                                    // Clickable Selected Color Circle (Opens Modal)
+                                    Tooltip(
+                                      message: 'Click to choose color from palette',
+                                      child: InkWell(
+                                        onTap: _openColorPaletteModal,
+                                        borderRadius: BorderRadius.circular(20),
+                                        child: Padding(
+                                          padding: const EdgeInsets.all(2.0),
+                                          child: Container(
+                                            width: 24,
+                                            height: 24,
+                                            decoration: BoxDecoration(
+                                              color: _currentSettings.ribbonColor,
+                                              shape: BoxShape.circle,
+                                              border: Border.all(
+                                                color: isDark ? Colors.white70 : Colors.black45,
+                                                width: 1.5,
+                                              ),
+                                              boxShadow: [
+                                                BoxShadow(
+                                                  color: _currentSettings.ribbonColor.withAlpha(120),
+                                                  blurRadius: 6,
+                                                  spreadRadius: 0.5,
+                                                ),
+                                              ],
+                                            ),
+                                            child: Icon(
+                                              Icons.palette_outlined,
+                                              size: 12,
+                                              color: _currentSettings.ribbonColor.computeLuminance() > 0.5
+                                                  ? Colors.black87
+                                                  : Colors.white,
+                                            ),
+                                          ),
+                                        ),
                                       ),
                                     ),
                                     const SizedBox(width: 8),
-                                    Text('#', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: subtextColor)),
-                                    const SizedBox(width: 4),
+                                    Text('#', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: subtextColor)),
+                                    const SizedBox(width: 6),
                                     Expanded(
                                       child: TextField(
                                         controller: _hexController,
-                                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: textColor),
+                                        style: TextStyle(
+                                          fontSize: 11.5,
+                                          fontWeight: FontWeight.w600,
+                                          letterSpacing: 0.6,
+                                          color: textColor,
+                                        ),
                                         decoration: InputDecoration(
-                                          hintText: 'Custom HEX (e.g. FFA500)',
-                                          hintStyle: TextStyle(fontSize: 10, color: subtextColor),
+                                          hintText: 'HEX code (e.g. 38BDF8)',
+                                          hintStyle: TextStyle(fontSize: 11, color: subtextColor),
                                           border: InputBorder.none,
                                           isDense: true,
                                           contentPadding: EdgeInsets.zero,
@@ -988,7 +1059,7 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                                         onChanged: (text) {
                                           final parsed = _hexToColor(text);
                                           if (parsed != null) {
-                                            _updateSettings(_currentSettings.copyWith(ribbonColor: parsed));
+                                            _updateSettings(_currentSettings.copyWith(ribbonColor: parsed, autoRibbonColor: false));
                                           }
                                         },
                                       ),
@@ -1049,7 +1120,7 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                         ),
                         const SizedBox(height: 8),
 
-                        // Section 4: Data Management (Export File / Import File / Clear)
+                        // Section 4: Backup & Restore
                         Container(
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
@@ -1058,43 +1129,143 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                             border: Border.all(color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle),
                           ),
                           child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Text('Stored Clips', style: TextStyle(fontSize: 11, color: subtextColor)),
-                                  Text('${widget.clips.length} items',
-                                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: textColor)),
+                                  Text(
+                                    'Backup & Restore',
+                                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: textColor),
+                                  ),
+                                  Text(
+                                    '${widget.clips.length} stored clips',
+                                    style: TextStyle(fontSize: 10, color: subtextColor),
+                                  ),
                                 ],
                               ),
                               const SizedBox(height: 8),
+
+                              // 1. Auto Backup Toggle
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.cloud_sync_outlined,
+                                    size: 16,
+                                    color: isDark ? AppColors.accentCyan : const Color(0xFF0284C7),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Automatic Backup',
+                                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: textColor),
+                                        ),
+                                        Text(
+                                          'Auto-saves snapshot to Documents on change',
+                                          style: TextStyle(fontSize: 9.5, color: subtextColor),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Switch(
+                                    value: _currentSettings.autoBackup,
+                                    activeThumbColor: isDark ? AppColors.accentCyan : const Color(0xFF0284C7),
+                                    onChanged: (val) {
+                                      _updateSettings(_currentSettings.copyWith(autoBackup: val));
+                                    },
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+
+                              // 2. Backup Folder Row
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: isDark ? AppColors.darkGlassSurface : AppColors.lightGlassSurface,
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.folder_open_rounded,
+                                      size: 14,
+                                      color: subtextColor,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        r'Documents\ClipDock\Backups',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontFamily: 'Consolas',
+                                          color: textColor,
+                                        ),
+                                      ),
+                                    ),
+                                    InkWell(
+                                      onTap: _openBackupFolder,
+                                      borderRadius: BorderRadius.circular(4),
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text(
+                                              'Open Folder',
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w700,
+                                                color: isDark ? AppColors.accentCyan : const Color(0xFF0284C7),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 3),
+                                            Icon(
+                                              Icons.launch_rounded,
+                                              size: 11,
+                                              color: isDark ? AppColors.accentCyan : const Color(0xFF0284C7),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+
+                              // 3. Export Backup & Import Backup Buttons
                               Row(
                                 children: [
                                   Expanded(
                                     child: OutlinedButton.icon(
-                                      onPressed: _exportToFile,
+                                      onPressed: _exportBackup,
                                       style: OutlinedButton.styleFrom(
                                         padding: const EdgeInsets.symmetric(vertical: 8),
                                         side: BorderSide(color: borderColor),
                                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(7)),
                                         foregroundColor: textColor,
                                       ),
-                                      icon: const Icon(Icons.file_upload_outlined, size: 13),
-                                      label: const Text('Export JSON', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600)),
+                                      icon: const Icon(Icons.upload_file_rounded, size: 14),
+                                      label: const Text('Export Backup', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600)),
                                     ),
                                   ),
                                   const SizedBox(width: 6),
                                   Expanded(
                                     child: OutlinedButton.icon(
-                                      onPressed: _importFromFile,
+                                      onPressed: _importBackupFromFile,
                                       style: OutlinedButton.styleFrom(
                                         padding: const EdgeInsets.symmetric(vertical: 8),
-                                        side: BorderSide(color: _isImporting ? AppColors.accentSilver : borderColor),
+                                        side: BorderSide(color: _isImporting ? AppColors.accentCyan : borderColor),
                                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(7)),
                                         foregroundColor: textColor,
                                       ),
-                                      icon: const Icon(Icons.file_download_outlined, size: 13),
-                                      label: const Text('Import JSON', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600)),
+                                      icon: const Icon(Icons.download_rounded, size: 14),
+                                      label: const Text('Import Backup', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600)),
                                     ),
                                   ),
                                 ],
@@ -1113,7 +1284,7 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                                     maxLines: 3,
                                     style: TextStyle(fontSize: 11, color: textColor),
                                     decoration: InputDecoration(
-                                      hintText: 'Paste JSON array or text clips here...',
+                                      hintText: 'Paste backup JSON string here...',
                                       hintStyle: TextStyle(fontSize: 10.5, color: subtextColor),
                                       border: InputBorder.none,
                                       contentPadding: const EdgeInsets.all(8),
@@ -1124,13 +1295,13 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                                 ElevatedButton.icon(
                                   onPressed: _handleManualImport,
                                   style: ElevatedButton.styleFrom(
-                                    backgroundColor: isDark ? AppColors.accentSilver : AppColors.lightTextPrimary,
-                                    foregroundColor: isDark ? const Color(0xFF000000) : Colors.white,
+                                    backgroundColor: isDark ? AppColors.accentCyan : const Color(0xFF0284C7),
+                                    foregroundColor: Colors.white,
                                     padding: const EdgeInsets.symmetric(vertical: 7),
                                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(7)),
                                   ),
                                   icon: const Icon(Icons.check_rounded, size: 13),
-                                  label: const Text('Confirm Import', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700)),
+                                  label: const Text('Confirm Restore', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700)),
                                 ),
                               ],
 
@@ -1181,7 +1352,473 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             ),
           ),
         ),
-      ),
+      );
+  }
+
+  Widget _buildOffsetSliderSection({
+    required BuildContext context,
+    required bool isDark,
+    required Color textColor,
+    required Color subtextColor,
+    required String title,
+    required String subtitle,
+    required double value,
+    required ValueChanged<double> onChanged,
+    required VoidCallback onReset,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              title,
+              style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: textColor),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: isDark ? AppColors.darkGlassSurface : AppColors.lightGlassSurface,
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle),
+              ),
+              child: Text(
+                value == 0.0
+                    ? '0 px (Default)'
+                    : (value > 0
+                        ? '+${value.round()} px (Right)'
+                        : '${value.round()} px (Left)'),
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: value == 0.0
+                      ? subtextColor
+                      : (isDark ? AppColors.accentCyan : const Color(0xFF0284C7)),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 2),
+        Text(
+          subtitle,
+          style: TextStyle(fontSize: 9, color: subtextColor),
+        ),
+        const SizedBox(height: 6),
+        Row(
+          children: [
+            // [-] Step Button
+            Tooltip(
+              message: 'Shift Left 1px (Long press 5px)',
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () => onChanged((value - 1.0).clamp(-100.0, 100.0)),
+                  onLongPress: () => onChanged((value - 5.0).clamp(-100.0, 100.0)),
+                  borderRadius: BorderRadius.circular(6),
+                  child: Container(
+                    width: 28,
+                    height: 28,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: isDark ? AppColors.darkGlassSurface : AppColors.lightGlassSurface,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle),
+                    ),
+                    child: Text(
+                      '-',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: textColor),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            // Slider (-100 to +100 px, step 1px)
+            Expanded(
+              child: SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  trackHeight: 3,
+                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                ),
+                child: Slider(
+                  value: value,
+                  min: -100.0,
+                  max: 100.0,
+                  divisions: 200,
+                  activeColor: isDark ? AppColors.accentCyan : const Color(0xFF0284C7),
+                  onChanged: (val) => onChanged(val.roundToDouble()),
+                ),
+              ),
+            ),
+            // [+] Step Button
+            Tooltip(
+              message: 'Shift Right 1px (Long press 5px)',
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () => onChanged((value + 1.0).clamp(-100.0, 100.0)),
+                  onLongPress: () => onChanged((value + 5.0).clamp(-100.0, 100.0)),
+                  borderRadius: BorderRadius.circular(6),
+                  child: Container(
+                    width: 28,
+                    height: 28,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: isDark ? AppColors.darkGlassSurface : AppColors.lightGlassSurface,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle),
+                    ),
+                    child: Text(
+                      '+',
+                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: textColor),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            if (value != 0.0) ...[
+              const SizedBox(width: 6),
+              Tooltip(
+                message: 'Reset to 0 px',
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: onReset,
+                    borderRadius: BorderRadius.circular(6),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: isDark ? AppColors.darkGlassSurface : AppColors.lightGlassSurface,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle),
+                      ),
+                      child: Text(
+                        'Reset',
+                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: subtextColor),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ],
     );
   }
+
+  @override
+  void didUpdateWidget(covariant SettingsDialog oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isDark != oldWidget.isDark) {
+      if (_currentSettings.autoRibbonColor) {
+        final newColor = widget.isDark ? const Color(0xFF000000) : const Color(0xFFFFFFFF);
+        setState(() {
+          _currentSettings.ribbonColor = newColor;
+          _hexController.text = _colorToHex(newColor);
+        });
+      }
+    }
+  }
+
+  void _selectColor(Color color, {bool isAuto = false}) {
+    _hexController.text = _colorToHex(color);
+    _updateSettings(_currentSettings.copyWith(ribbonColor: color, autoRibbonColor: isAuto));
+  }
+
+  void _openColorPaletteModal() {
+    final isDark = widget.isDark;
+    final bgAlpha = (widget.settings.opacity * 255).round().clamp(0, 255);
+    final bgSurface = isDark
+        ? Color.fromARGB(bgAlpha, 14, 14, 14)
+        : Color.fromARGB(bgAlpha, 248, 250, 252);
+    final textColor = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
+    final subtextColor = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+    final borderColor = isDark ? AppColors.darkBorder : AppColors.lightBorder;
+
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Dismiss Color Palette',
+      barrierColor: Colors.black.withAlpha(180),
+      transitionDuration: const Duration(milliseconds: 180),
+      pageBuilder: (dialogCtx, anim1, anim2) {
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            final currentColor = _currentSettings.ribbonColor;
+            return Dialog(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(
+                    sigmaX: widget.settings.blur,
+                    sigmaY: widget.settings.blur,
+                  ),
+                  child: Container(
+                    width: 370,
+                    constraints: const BoxConstraints(maxHeight: 560),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: bgSurface,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: borderColor, width: 1.2),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withAlpha(90),
+                          blurRadius: 16,
+                          offset: const Offset(0, 6),
+                        ),
+                      ],
+                    ),
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          // Header
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.palette_outlined,
+                                size: 18,
+                                color: isDark ? AppColors.accentCyan : const Color(0xFF0284C7),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Choose Ribbon Color',
+                                  style: TextStyle(
+                                    fontSize: 13.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: textColor,
+                                  ),
+                                ),
+                              ),
+                              IconButton(
+                                onPressed: () => Navigator.of(dialogCtx).pop(),
+                                iconSize: 16,
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                                icon: Icon(Icons.close_rounded, color: subtextColor),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+
+                          // Section 1: Theme Presets (Light & AMOLED)
+                          Text(
+                            'Theme Presets (Light & AMOLED)',
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.2,
+                              color: subtextColor,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          _buildColorGrid(_themePresetColors, currentColor, (color, isAuto) {
+                            _selectColor(color, isAuto: isAuto);
+                            setModalState(() {});
+                          }, isDark),
+
+                          const SizedBox(height: 12),
+
+                          // Section 2: Solid Colors
+                          Text(
+                            'Solid & Vibrant Colors',
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.2,
+                              color: subtextColor,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          _buildColorGrid(_solidColors, currentColor, (color, isAuto) {
+                            _selectColor(color, isAuto: false);
+                            setModalState(() {});
+                          }, isDark),
+
+                          const SizedBox(height: 12),
+
+                          // Section 3: Low / Thin Colors (Soft Pastels)
+                          Text(
+                            'Low & Thin Pastel Colors',
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.2,
+                              color: subtextColor,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          _buildColorGrid(_softPastelColors, currentColor, (color, isAuto) {
+                            _selectColor(color, isAuto: false);
+                            setModalState(() {});
+                          }, isDark),
+
+                          const SizedBox(height: 14),
+
+                          // Bottom Row: Current Selected Preview and Done button
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    width: 16,
+                                    height: 16,
+                                    decoration: BoxDecoration(
+                                      color: currentColor,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: isDark ? Colors.white54 : Colors.black26,
+                                        width: 1,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    '#${_colorToHex(currentColor)}',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: 0.5,
+                                      color: textColor,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              InkWell(
+                                onTap: () => Navigator.of(dialogCtx).pop(),
+                                borderRadius: BorderRadius.circular(6),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: isDark
+                                        ? AppColors.accentCyan.withAlpha(40)
+                                        : const Color(0xFF0284C7).withAlpha(30),
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(
+                                      color: isDark
+                                          ? AppColors.accentCyan.withAlpha(120)
+                                          : const Color(0xFF0284C7).withAlpha(120),
+                                      width: 1,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    'Done',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                      color: isDark ? AppColors.accentCyan : const Color(0xFF0284C7),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildColorGrid(
+    List<_ColorOption> options,
+    Color currentColor,
+    void Function(Color color, bool isAuto) onSelected,
+    bool isDark,
+  ) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: options.map((option) {
+        final effectiveColor = option.isAuto
+            ? (isDark ? const Color(0xFF000000) : const Color(0xFFFFFFFF))
+            : option.color;
+        final isSelected = option.isAuto
+            ? _currentSettings.autoRibbonColor
+            : (!_currentSettings.autoRibbonColor && currentColor.toARGB32() == effectiveColor.toARGB32());
+        final isWhite = effectiveColor.toARGB32() == const Color(0xFFFFFFFF).toARGB32();
+        final isBlack = effectiveColor.toARGB32() == const Color(0xFF000000).toARGB32();
+        final isBright = effectiveColor.computeLuminance() > 0.6;
+
+        return Tooltip(
+          message: option.isAuto
+              ? 'Auto (${isDark ? 'AMOLED Black #000000' : 'Light White #FFFFFF'})'
+              : '${option.name} (#${_colorToHex(option.color)})',
+          child: GestureDetector(
+            onTap: () => onSelected(effectiveColor, option.isAuto),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 140),
+              width: 30,
+              height: 30,
+              decoration: BoxDecoration(
+                color: effectiveColor,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: isSelected
+                      ? (isBright ? Colors.black : Colors.white)
+                      : (isDark
+                          ? (isWhite || isBlack ? Colors.white54 : Colors.white24)
+                          : (isWhite || isBlack ? Colors.black54 : Colors.black12)),
+                  width: isSelected ? 2.5 : (isWhite || isBlack ? 1.4 : 1),
+                ),
+                boxShadow: isSelected
+                    ? [
+                        BoxShadow(
+                          color: effectiveColor.withAlpha(180),
+                          blurRadius: 7,
+                          spreadRadius: 1,
+                        ),
+                      ]
+                    : null,
+              ),
+              child: isSelected
+                  ? Icon(
+                      Icons.check_rounded,
+                      size: 15,
+                      color: isBright ? Colors.black : Colors.white,
+                    )
+                  : (option.isAuto
+                      ? Center(
+                          child: Icon(
+                            Icons.brightness_auto_rounded,
+                            size: 13,
+                            color: isBright ? Colors.black87 : Colors.white70,
+                          ),
+                        )
+                      : null),
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+}
+
+class _ColorOption {
+  final Color color;
+  final String name;
+  final bool isLight;
+  final bool isAuto;
+
+  const _ColorOption(
+    this.color,
+    this.name, {
+    this.isLight = false,
+    this.isAuto = false,
+  });
 }

@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:ui';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -28,11 +27,13 @@ enum ToastType {
 class EdgeDockWidget extends StatefulWidget {
   final bool isDark;
   final VoidCallback onToggleTheme;
+  final VoidCallback? onMinimize;
 
   const EdgeDockWidget({
     super.key,
     required this.isDark,
     required this.onToggleTheme,
+    this.onMinimize,
   });
 
   @override
@@ -40,6 +41,7 @@ class EdgeDockWidget extends StatefulWidget {
 }
 
 class EdgeDockWidgetState extends State<EdgeDockWidget> {
+  bool get isPinned => _isPinned;
   final TextEditingController _searchController = TextEditingController();
   List<ClipItem> _clips = [];
   List<ClipItem> _filteredClips = [];
@@ -59,12 +61,13 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
   ToastType _toastType = ToastType.success;
   Timer? _toastTimer;
 
-  static const double _panelWidth = 400.0;
+  double get _panelWidth => _settings.panelWidth;
   static const double _windowHeight = 680.0;
   double _targetY = 80.0;
   bool _isAnimating = false;
 
-  double get _leftEdgeOffset => (Platform.isWindows ? -8.0 : 0.0) + _settings.edgeOffset;
+  double get _visibleX => (Platform.isWindows ? -8.0 : 0.0) + _settings.edgeOffsetVisible;
+  double get _hiddenX => -_panelWidth + (Platform.isWindows ? -8.0 : 0.0) + _settings.edgeOffsetHidden;
   double get _ribbonWidth => _settings.ribbonWidth;
   double get _totalWidth => _panelWidth + _ribbonWidth;
 
@@ -76,7 +79,31 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
     _startClipboardMonitoring();
   }
 
+  @override
+  void didUpdateWidget(covariant EdgeDockWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isDark != oldWidget.isDark) {
+      if (_settings.autoRibbonColor) {
+        setState(() {
+          _settings.ribbonColor = widget.isDark ? const Color(0xFF000000) : const Color(0xFFFFFFFF);
+        });
+        _persistSettings();
+      }
+    }
+  }
+
+  void updateSettingsFromExternal(DockSettings newSettings) {
+    if (mounted) {
+      setState(() {
+        _settings = newSettings;
+        _isPinned = newSettings.isPinned;
+      });
+      _syncWindowBlur();
+    }
+  }
+
   Future<void> _loadSettingsAndClips() async {
+    final isFreshInstall = await DatabaseService.isFirstEverInstall();
     final loadedSettings = await DatabaseService.loadSettings();
     final loadedClips = await DatabaseService.loadAllClips();
     if (mounted) {
@@ -92,20 +119,60 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
       });
       try {
         if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
-          final newTotalWidth = _panelWidth + _settings.ribbonWidth;
-          await windowManager.setSize(Size(newTotalWidth, _windowHeight));
+          await windowManager.setSize(Size(_totalWidth, _windowHeight));
         }
+      } catch (_) {}
+
+      _syncWindowBlur();
+
+      // ONLY show the import/start fresh modal if this is a first-ever install (never installed previously)
+      if (isFreshInstall && !_settings.hasCompletedInitialSetup && loadedClips.isEmpty) {
+        Future.delayed(const Duration(milliseconds: 700), () {
+          if (mounted && !_settings.hasCompletedInitialSetup) {
+            _showFirstLaunchImportDialog();
+          }
+        });
+      } else {
+        if (!_settings.hasCompletedInitialSetup) {
+          _settings.hasCompletedInitialSetup = true;
+          _persistSettings();
+        }
+        DatabaseService.triggerAutoBackup(_settings, _clips);
+      }
+    }
+  }
+
+  Future<void> _syncWindowBlur() async {
+    if (!kIsWeb && Platform.isWindows) {
+      try {
+        const channel = MethodChannel('cnote/drag_drop');
+        final bool enableBlur = _settings.blur > 0 || _settings.transparency > 0;
+        // Compute ABGR tint color for Windows Acrylic API
+        // Higher transparency = lower alpha on tint = more see-through
+        final int tintAlpha = ((1.0 - _settings.transparency) * 200).round().clamp(0, 200);
+        final bool isDark = _settings.isDark;
+        // ABGR format: 0xAABBGGRR
+        final int tintColor = isDark
+            ? (tintAlpha << 24) | 0x00000000  // black tint
+            : (tintAlpha << 24) | 0x00FAFAF8; // light tint (F8FAFA in BGR)
+        await channel.invokeMethod('setWindowBlur', {
+          'enable': enableBlur,
+          'tintColor': tintColor,
+        });
       } catch (_) {}
     }
   }
 
   Future<void> _persistClips() async {
     await DatabaseService.saveAllClips(_clips);
+    DatabaseService.triggerAutoBackup(_settings, _clips);
   }
 
   Future<void> _persistSettings() async {
     _settings.isPinned = _isPinned;
     await DatabaseService.saveSettings(_settings);
+    DatabaseService.triggerAutoBackup(_settings, _clips);
+    _syncWindowBlur();
   }
 
   Future<void> _initScreenAndStart() async {
@@ -160,7 +227,7 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
     setState(() {
       _isExpanded = true;
     });
-    await _animateToX(_leftEdgeOffset);
+    await _animateToX(_visibleX);
   }
 
   Future<void> _collapseDock() async {
@@ -169,8 +236,7 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
     setState(() {
       _isExpanded = false;
     });
-    final hiddenX = -_panelWidth + _leftEdgeOffset;
-    await _animateToX(hiddenX);
+    await _animateToX(_hiddenX);
   }
 
   void toggleDock() {
@@ -201,8 +267,48 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
     }
   }
 
+  void minimizeToTray() {
+    if (widget.onMinimize != null) {
+      widget.onMinimize!();
+    } else {
+      windowManager.hide();
+    }
+  }
+
+  void expandDockFromTray() {
+    _expandDock();
+  }
+
+  void expandDockAndAddClip() {
+    _expandDock();
+    Future.delayed(const Duration(milliseconds: 120), () {
+      if (mounted) _openAddDialog();
+    });
+  }
+
+  void togglePinFromTray() {
+    _togglePin();
+  }
+
+  void openSettingsFromTray() {
+    _expandDock();
+    Future.delayed(const Duration(milliseconds: 120), () {
+      if (mounted) _openSettingsDialog();
+    });
+  }
+
+  void openAboutFromTray() {
+    _expandDock();
+    Future.delayed(const Duration(milliseconds: 120), () {
+      if (mounted) _openAboutDialog();
+    });
+  }
+
   void _onMouseEnterEdge() {
     _autoHideTimer?.cancel();
+    try {
+      const MethodChannel('cnote/drag_drop').invokeMethod('captureActiveWindow');
+    } catch (_) {}
     _expandDock();
   }
 
@@ -474,7 +580,7 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
       context: context,
       barrierDismissible: true,
       barrierLabel: 'Dismiss Add Clip Dialog',
-      barrierColor: Colors.black.withAlpha(120),
+      barrierColor: Colors.black.withAlpha(190),
       transitionDuration: const Duration(milliseconds: 180),
       pageBuilder: (ctx, anim1, anim2) {
         return Align(
@@ -514,7 +620,7 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
       context: context,
       barrierDismissible: true,
       barrierLabel: 'Dismiss Edit Clip Dialog',
-      barrierColor: Colors.black.withAlpha(120),
+      barrierColor: Colors.black.withAlpha(190),
       transitionDuration: const Duration(milliseconds: 180),
       pageBuilder: (ctx, anim1, anim2) {
         return Align(
@@ -562,7 +668,7 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
       context: context,
       barrierDismissible: true,
       barrierLabel: 'Dismiss Settings Dialog',
-      barrierColor: Colors.black.withAlpha(120),
+      barrierColor: Colors.black.withAlpha(190),
       transitionDuration: const Duration(milliseconds: 180),
       pageBuilder: (ctx, anim1, anim2) {
         return Align(
@@ -571,51 +677,289 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
             width: _panelWidth,
             child: Center(
               child: SettingsDialog(
-                isDark: widget.isDark,
-                clips: _clips.where((c) => !c.isDeleted).toList(),
-                settings: _settings,
-                onSettingsChanged: (updatedSettings) async {
-                  setState(() {
-                    _settings = updatedSettings;
-                  });
-                  await _persistSettings();
-                  try {
-                    final newTotalWidth = _panelWidth + updatedSettings.ribbonWidth;
-                    await windowManager.setSize(Size(newTotalWidth, _windowHeight));
-                    final targetX = _isExpanded ? _leftEdgeOffset : (-_panelWidth + _leftEdgeOffset);
-                    await windowManager.setPosition(Offset(targetX, _targetY));
-                  } catch (_) {}
-                },
-                onImportClips: (imported) {
-                  setState(() {
-                    final existingContents = _clips.map((c) => c.content).toSet();
-                    final newUniqueClips = imported.where((c) => !existingContents.contains(c.content)).toList();
-                    _clips.insertAll(0, newUniqueClips);
-                    _applyFilter();
-                  });
-                  _persistClips();
-                  _showNotification('Imported ${imported.length} clips');
-                },
-                onClearAll: () {
-                  setState(() {
-                    _clips.clear();
-                    _applyFilter();
-                  });
-                  _persistClips();
-                  _showNotification('All clips cleared');
-                },
+                  isDark: widget.isDark,
+                  clips: _clips.where((c) => !c.isDeleted).toList(),
+                  settings: _settings,
+                  onSettingsChanged: (updatedSettings) async {
+                    setState(() {
+                      _settings = updatedSettings;
+                    });
+                    await _persistSettings();
+                    try {
+                      await windowManager.setSize(Size(_totalWidth, _windowHeight));
+                      final targetX = _isExpanded ? _visibleX : _hiddenX;
+                      await windowManager.setPosition(Offset(targetX, _targetY));
+                    } catch (_) {}
+                  },
+                  onRestoreBackup: (restoredSettings, restoredClips) async {
+                    setState(() {
+                      if (restoredSettings != null) {
+                        _settings = restoredSettings;
+                      }
+                      if (restoredClips.isNotEmpty) {
+                        _clips = restoredClips;
+                      }
+                      _applyFilter();
+                    });
+                    await _persistClips();
+                    await _persistSettings();
+                    try {
+                      await windowManager.setSize(Size(_totalWidth, _windowHeight));
+                      final targetX = _isExpanded ? _visibleX : _hiddenX;
+                      await windowManager.setPosition(Offset(targetX, _targetY));
+                    } catch (_) {}
+                    _showNotification('Backup restored successfully');
+                  },
+                  onClearAll: () {
+                    setState(() {
+                      _clips.clear();
+                      _applyFilter();
+                    });
+                    _persistClips();
+                    _showNotification('All clips cleared');
+                  },
+                ),
               ),
             ),
-          ),
-        );
-      },
-    );
+          );
+        },
+      );
 
     if (mounted) {
       setState(() {
         _isDialogOpen = false;
       });
     }
+  }
+
+  Future<void> _importBackupFileDirectly() async {
+    String? selectedPath;
+    if (!kIsWeb && Platform.isWindows) {
+      try {
+        final result = await Process.run('powershell', [
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          '''
+Add-Type -AssemblyName System.Windows.Forms
+\$ofd = New-Object System.Windows.Forms.OpenFileDialog
+\$ofd.Filter = "JSON Backup (*.json)|*.json|Text files (*.*)|*.*"
+\$ofd.Title = "Select Clip Dock Backup to Import"
+if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+  Write-Output \$ofd.FileName
+}
+''',
+        ]);
+        if (result.exitCode == 0) {
+          final out = (result.stdout as String).trim();
+          if (out.isNotEmpty && !out.contains('Error')) {
+            selectedPath = out;
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (selectedPath != null && selectedPath.isNotEmpty) {
+      try {
+        final file = File(selectedPath);
+        if (await file.exists()) {
+          final content = await file.readAsString();
+          final restored = DatabaseService.parseBackupJson(content);
+          if (restored != null && (restored.clips.isNotEmpty || restored.settings != null)) {
+            setState(() {
+              if (restored.settings != null) {
+                _settings = restored.settings!;
+              }
+              if (restored.clips.isNotEmpty) {
+                _clips = restored.clips;
+              }
+              _settings.hasCompletedInitialSetup = true;
+              _applyFilter();
+            });
+            await _persistClips();
+            await _persistSettings();
+            try {
+              await windowManager.setSize(Size(_totalWidth, _windowHeight));
+              final targetX = _isExpanded ? _visibleX : _hiddenX;
+              await windowManager.setPosition(Offset(targetX, _targetY));
+            } catch (_) {}
+            _showNotification('Backup restored successfully');
+            return;
+          }
+        }
+      } catch (_) {}
+    }
+  }
+
+  void _showFirstLaunchImportDialog() {
+    setState(() {
+      _isDialogOpen = true;
+    });
+
+    final isDark = widget.isDark;
+    final bgAlpha = (_settings.opacity * 255).round().clamp(0, 255);
+    final bgSurface = isDark
+        ? Color.fromARGB(bgAlpha, 14, 14, 14)
+        : Color.fromARGB(bgAlpha, 248, 250, 252);
+    final textColor = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
+    final subtextColor = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+    final borderColor = isDark ? AppColors.darkBorder : AppColors.lightBorder;
+
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: false,
+      barrierLabel: 'Welcome to Clip Dock',
+      barrierColor: Colors.black.withAlpha(200),
+      transitionDuration: const Duration(milliseconds: 200),
+      pageBuilder: (dialogCtx, anim1, anim2) {
+        return Align(
+          alignment: Alignment.centerLeft,
+          child: SizedBox(
+            width: _panelWidth,
+            child: Center(
+              child: Dialog(
+                backgroundColor: Colors.transparent,
+                elevation: 0,
+                insetPadding: const EdgeInsets.symmetric(horizontal: 16),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(14),
+                  child: Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: bgSurface,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: borderColor, width: 1.2),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withAlpha(120),
+                          blurRadius: 20,
+                          offset: const Offset(0, 8),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Center(
+                          child: Container(
+                            width: 52,
+                            height: 52,
+                            decoration: BoxDecoration(
+                              color: isDark ? const Color(0xFF0F172A) : const Color(0xFFE2E8F0),
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: isDark ? AppColors.accentCyan : const Color(0xFF0284C7),
+                                width: 1.5,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: (isDark ? AppColors.accentCyan : const Color(0xFF0284C7)).withAlpha(50),
+                                  blurRadius: 12,
+                                  offset: const Offset(0, 3),
+                                ),
+                              ],
+                            ),
+                            child: Center(
+                              child: Icon(
+                                Icons.content_paste_rounded,
+                                size: 26,
+                                color: isDark ? AppColors.accentCyan : const Color(0xFF0284C7),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Welcome to Clip Dock',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: textColor,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Would you like to import an existing backup to restore your clips & settings, or start fresh?',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            height: 1.45,
+                            color: subtextColor,
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+                        Row(
+                          children: [
+                            // Left: Import Backup
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: () async {
+                                  Navigator.of(dialogCtx).pop();
+                                  await _importBackupFileDirectly();
+                                  setState(() {
+                                    _settings.hasCompletedInitialSetup = true;
+                                  });
+                                  await _persistSettings();
+                                },
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: isDark ? AppColors.accentCyan : const Color(0xFF0284C7),
+                                  foregroundColor: isDark ? Colors.black : Colors.white,
+                                  padding: const EdgeInsets.symmetric(vertical: 10),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  elevation: 0,
+                                ),
+                                icon: const Icon(Icons.file_upload_outlined, size: 14),
+                                label: const Text(
+                                  'Import Backup',
+                                  style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+
+                            // Right: Start Fresh
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: () async {
+                                  Navigator.of(dialogCtx).pop();
+                                  setState(() {
+                                    _settings.hasCompletedInitialSetup = true;
+                                  });
+                                  await _persistSettings();
+                                  _showNotification('Welcome to Clip Dock!');
+                                },
+                                style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(vertical: 10),
+                                  side: BorderSide(color: borderColor),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  foregroundColor: textColor,
+                                ),
+                                child: Text(
+                                  'Start Fresh',
+                                  style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: subtextColor),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    ).then((_) {
+      if (mounted) {
+        setState(() {
+          _isDialogOpen = false;
+        });
+      }
+    });
   }
 
   Future<void> _openAboutDialog() async {
@@ -627,7 +971,7 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
       context: context,
       barrierDismissible: true,
       barrierLabel: 'Dismiss About Dialog',
-      barrierColor: Colors.black.withAlpha(120),
+      barrierColor: Colors.black.withAlpha(190),
       transitionDuration: const Duration(milliseconds: 180),
       pageBuilder: (ctx, anim1, anim2) {
         return Align(
@@ -658,7 +1002,10 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
     final bgBase = isDark
         ? const Color(0xFF000000)
         : const Color(0xFFF8FAFC);
-    final bgGlass = bgBase.withAlpha((_settings.opacity * 255).round().clamp(20, 255));
+    // When transparency > 0, let the Windows acrylic show through
+    // transparency 0 = fully opaque panel, transparency 1 = fully clear glass
+    final int bgAlpha = ((1.0 - _settings.transparency) * 255).round().clamp(0, 255);
+    final bgGlass = bgBase.withAlpha(bgAlpha);
 
     final handleColor = _settings.ribbonColor.withAlpha((_settings.ribbonOpacity * 255).round().clamp(0, 255));
 
@@ -678,34 +1025,35 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
           child: Stack(
             clipBehavior: Clip.none,
             children: [
-              // 1. Main Drawer Panel Body (Fixed 400px wide, with rounded right corners)
+              // 1. Main Drawer Panel Body (Adjustable width, with flat border)
               Positioned(
                 left: 0,
                 top: 0,
                 bottom: 0,
                 width: _panelWidth,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.zero,
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(
-                      sigmaX: _settings.blur,
-                      sigmaY: _settings.blur,
-                    ),
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.translucent,
-                      onSecondaryTap: () {
-                        if (_settings.rightClickToPaste) {
-                          _pasteFromClipboard();
-                        }
-                      },
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: bgGlass,
-                          borderRadius: BorderRadius.zero,
+                child: Opacity(
+                  opacity: _settings.opacity.clamp(0.20, 1.0),
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.translucent,
+                    onSecondaryTap: () {
+                      if (_settings.rightClickToPaste) {
+                        _pasteFromClipboard();
+                      }
+                    },
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: bgGlass,
+                        borderRadius: BorderRadius.zero,
+                        border: Border(
+                          right: BorderSide(
+                            color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle,
+                            width: 1,
+                          ),
                         ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
                             // Header Bar with Total Active Count
                             HeaderBar(
                               isDark: isDark,
@@ -715,6 +1063,7 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
                               onToggleTheme: widget.onToggleTheme,
                               onCollapse: _collapseManual,
                               onAdd: _openAddDialog,
+                              onMinimize: minimizeToTray,
                             ),
 
                             // Search & Actions Bar (Tabs [All, Auto, Starred, Trash] and Paste / Empty button)
@@ -812,6 +1161,7 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
                                           isTrash: isTrash,
                                           isAuto: item.isAuto,
                                           clickRowToCopy: _settings.clickRowToCopy,
+                                          clickRowToFill: _settings.clickRowToFill,
                                           showCopyButton: _settings.showCopyButton,
                                           dragToPaste: _settings.dragToPaste,
                                           onCopy: () => _onCopyClip(item, index + 1),
@@ -956,7 +1306,6 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
                   ),
                 ),
               ),
-            ),
 
               // 2. Ribbon Handle (Attached directly OUTSIDE on the right side of the panel)
               if (((_isExpanded && _settings.showRibbonWhenExpanded) ||

@@ -116,6 +116,7 @@ void main() {
   test('DockSettings serialization and deserialization preserves all values', () {
     final settings = DockSettings(
       opacity: 0.85,
+      transparency: 0.45,
       blur: 15.0,
       ribbonWidth: 20.0,
       ribbonHeightPercent: 0.5,
@@ -123,35 +124,48 @@ void main() {
       ribbonColor: const Color(0xFF00FF00),
       showRibbonWhenExpanded: false,
       showRibbonWhenCollapsed: true,
-      edgeOffset: -12.0,
+      edgeOffsetVisible: -12.0,
+      edgeOffsetHidden: 5.0,
+      panelWidth: 460.0,
       isPinned: true,
       isDark: false,
       clickRowToCopy: true,
+      clickRowToFill: true,
       showCopyButton: false,
       autoCapture: false,
       rightClickToPaste: true,
       dragToPaste: true,
+      autoBackup: true,
+      hasCompletedInitialSetup: true,
+      autoRibbonColor: true,
     );
 
     final json = settings.toJson();
     final restored = DockSettings.fromJson(json);
 
     expect(restored.opacity, 0.85);
+    expect(restored.transparency, 0.45);
     expect(restored.blur, 15.0);
     expect(restored.ribbonWidth, 20.0);
     expect(restored.ribbonHeightPercent, 0.5);
     expect(restored.ribbonOpacity, 0.9);
-    expect(restored.ribbonColor, const Color(0xFF00FF00));
+    expect(restored.ribbonColor, const Color(0xFFFFFFFF));
     expect(restored.showRibbonWhenExpanded, false);
     expect(restored.showRibbonWhenCollapsed, true);
-    expect(restored.edgeOffset, -12.0);
+    expect(restored.edgeOffsetVisible, -12.0);
+    expect(restored.edgeOffsetHidden, 5.0);
+    expect(restored.panelWidth, 460.0);
     expect(restored.isPinned, true);
     expect(restored.isDark, false);
     expect(restored.clickRowToCopy, true);
+    expect(restored.clickRowToFill, true);
     expect(restored.showCopyButton, false);
     expect(restored.autoCapture, false);
     expect(restored.rightClickToPaste, true);
     expect(restored.dragToPaste, true);
+    expect(restored.autoBackup, true);
+    expect(restored.hasCompletedInitialSetup, true);
+    expect(restored.autoRibbonColor, true);
   });
 
   test('ClipItem isAuto serialization and deserialization', () {

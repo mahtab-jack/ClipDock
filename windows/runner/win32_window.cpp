@@ -147,7 +147,7 @@ bool Win32Window::Create(const std::wstring& title,
   double scale_factor = dpi / 96.0;
 
   HWND window = CreateWindowEx(
-      WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+      WS_EX_TOOLWINDOW,
       window_class, title.c_str(), WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
       Scale(origin.x, scale_factor), Scale(origin.y, scale_factor),
       Scale(size.width, scale_factor), Scale(size.height, scale_factor),
@@ -168,7 +168,7 @@ bool Win32Window::Create(const std::wstring& title,
 }
 
 bool Win32Window::Show() {
-  return ShowWindow(window_handle_, SW_SHOWNOACTIVATE);
+  return ShowWindow(window_handle_, SW_SHOWNORMAL);
 }
 
 // static
@@ -197,9 +197,6 @@ Win32Window::MessageHandler(HWND hwnd,
                             WPARAM const wparam,
                             LPARAM const lparam) noexcept {
   switch (message) {
-    case WM_MOUSEACTIVATE:
-      return MA_NOACTIVATE;
-
     case WM_NCCALCSIZE: {
       if (wparam == TRUE) {
         return 0;

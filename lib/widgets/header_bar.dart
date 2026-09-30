@@ -10,6 +10,7 @@ class HeaderBar extends StatelessWidget {
   final VoidCallback onToggleTheme;
   final VoidCallback onCollapse;
   final VoidCallback onAdd;
+  final VoidCallback? onMinimize;
 
   const HeaderBar({
     super.key,
@@ -20,6 +21,7 @@ class HeaderBar extends StatelessWidget {
     required this.onToggleTheme,
     required this.onCollapse,
     required this.onAdd,
+    this.onMinimize,
   });
 
   @override
@@ -40,7 +42,7 @@ class HeaderBar extends StatelessWidget {
       ),
       child: Row(
         children: [
-          // Title with Total Count and Version
+          // Title with Total Count
           Expanded(
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -54,27 +56,6 @@ class HeaderBar extends StatelessWidget {
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
                       color: textColor,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 5),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 4.5, vertical: 1.5),
-                  decoration: BoxDecoration(
-                    color: isDark ? AppColors.accentCyan.withAlpha(25) : AppColors.accentCyan.withAlpha(20),
-                    borderRadius: BorderRadius.circular(3.5),
-                    border: Border.all(
-                      color: isDark ? AppColors.accentCyan.withAlpha(90) : AppColors.accentCyan.withAlpha(90),
-                      width: 0.8,
-                    ),
-                  ),
-                  child: Text(
-                    'v1.1.0',
-                    style: TextStyle(
-                      fontSize: 8.5,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.2,
-                      color: isDark ? AppColors.accentCyan : const Color(0xFF0284C7),
                     ),
                   ),
                 ),
@@ -208,12 +189,12 @@ class HeaderBar extends StatelessWidget {
 
           // Minimize Button
           Tooltip(
-            message: 'Minimize',
+            message: 'Minimize to Tray',
             child: SizedBox(
               width: 24,
               height: 24,
               child: IconButton(
-                onPressed: () => windowManager.minimize(),
+                onPressed: onMinimize ?? () => windowManager.hide(),
                 padding: EdgeInsets.zero,
                 style: IconButton.styleFrom(
                   shape: const CircleBorder(),
