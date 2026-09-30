@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../models/clip_item.dart';
@@ -68,11 +69,22 @@ class _EditClipDialogState extends State<EditClipDialog> {
     return computed.clamp(_minContentHeight, _maxContentHeight);
   }
 
+  void _openImageInDefaultApp() {
+    final path = widget.item.imagePath;
+    if (path == null || !File(path).existsSync()) return;
+    try {
+      Process.run('cmd', ['/c', 'start', '', path]);
+    } catch (e) {
+      debugPrint('Error opening image in default app: $e');
+    }
+  }
+
   void _handleSave() {
+    final isImage = widget.item.isImage;
     final title = _titleController.text.trim();
     final content = _contentController.text.trim();
 
-    if (content.isEmpty) {
+    if (!isImage && content.isEmpty) {
       setState(() {
         _errorText = 'Clip content cannot be empty';
       });
@@ -80,10 +92,12 @@ class _EditClipDialogState extends State<EditClipDialog> {
     }
 
     final finalTitle = title.isEmpty
-        ? (content.length > 35 ? '${content.substring(0, 35)}...' : content)
+        ? (isImage
+            ? (widget.item.title.isNotEmpty ? widget.item.title : 'Captured Image')
+            : (content.length > 35 ? '${content.substring(0, 35)}...' : content))
         : title;
 
-    widget.onSave(finalTitle, content);
+    widget.onSave(finalTitle, isImage ? widget.item.content : content);
     Navigator.of(context).pop();
   }
 
@@ -203,98 +217,170 @@ class _EditClipDialogState extends State<EditClipDialog> {
                   ),
                   const SizedBox(height: 10),
 
-                  // Content Input with Resizer Handle
-                  Text(
-                    'Clip Content (Text to copy)',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: subtextColor,
+                  if (widget.item.isImage) ...[
+                    Text(
+                      'Image Preview',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: subtextColor,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Container(
-                    height: effectiveHeight,
-                    decoration: BoxDecoration(
-                      color: cardBg,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle),
+                    const SizedBox(height: 4),
+                    MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      child: GestureDetector(
+                        onTap: _openImageInDefaultApp,
+                        child: Container(
+                          height: 200,
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            color: cardBg,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle,
+                            ),
+                          ),
+                          clipBehavior: Clip.antiAlias,
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              if (widget.item.imagePath != null && File(widget.item.imagePath!).existsSync())
+                                Positioned.fill(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(8.0),
+                                    child: Image.file(
+                                      File(widget.item.imagePath!),
+                                      fit: BoxFit.contain,
+                                      errorBuilder: (context, error, stackTrace) => Center(
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.broken_image_rounded, size: 36, color: subtextColor),
+                                            const SizedBox(height: 6),
+                                            Text(
+                                              'Failed to load image',
+                                              style: TextStyle(fontSize: 11, color: subtextColor),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                )
+                              else
+                                Center(
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.image_not_supported_rounded, size: 36, color: subtextColor),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        'Image file not found',
+                                        style: TextStyle(fontSize: 11, color: subtextColor),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
                     ),
-                    child: Stack(
-                      children: [
-                        Positioned.fill(
-                          child: Padding(
-                            padding: const EdgeInsets.fromLTRB(10, 8, 10, 24),
-                            child: ScrollConfiguration(
-                              behavior: ScrollConfiguration.of(context).copyWith(scrollbars: true),
-                              child: TextField(
-                                controller: _contentController,
-                                maxLines: null,
-                                keyboardType: TextInputType.multiline,
-                                style: TextStyle(fontSize: 12, color: textColor),
-                                decoration: InputDecoration(
-                                  hintText: 'Edit clip text...',
-                                  hintStyle: TextStyle(fontSize: 11, color: subtextColor),
-                                  border: InputBorder.none,
-                                  isDense: true,
-                                  contentPadding: EdgeInsets.zero,
+                  ] else ...[
+                    // Content Input with Resizer Handle
+                    Text(
+                      'Clip Content (Text to copy)',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: subtextColor,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Container(
+                      height: effectiveHeight,
+                      decoration: BoxDecoration(
+                        color: cardBg,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle),
+                      ),
+                      child: Stack(
+                        children: [
+                          Positioned.fill(
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(10, 8, 10, 24),
+                              child: ScrollConfiguration(
+                                behavior: ScrollConfiguration.of(context).copyWith(scrollbars: true),
+                                child: TextField(
+                                  controller: _contentController,
+                                  maxLines: null,
+                                  keyboardType: TextInputType.multiline,
+                                  style: TextStyle(fontSize: 12, color: textColor),
+                                  decoration: InputDecoration(
+                                    hintText: 'Edit clip text...',
+                                    hintStyle: TextStyle(fontSize: 11, color: subtextColor),
+                                    border: InputBorder.none,
+                                    isDense: true,
+                                    contentPadding: EdgeInsets.zero,
+                                  ),
                                 ),
                               ),
                             ),
                           ),
-                        ),
 
-                        // Bottom row: Character count on left & Resizer grip on right
-                        Positioned(
-                          left: 10,
-                          right: 3,
-                          bottom: 3,
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 2),
-                                child: Text(
-                                  '$charCount ${charCount == 1 ? 'character' : 'characters'}',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w500,
-                                    color: subtextColor.withAlpha(160),
+                          // Bottom row: Character count on left & Resizer grip on right
+                          Positioned(
+                            left: 10,
+                            right: 3,
+                            bottom: 3,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 2),
+                                  child: Text(
+                                    '$charCount ${charCount == 1 ? 'character' : 'characters'}',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w500,
+                                      color: subtextColor.withAlpha(160),
+                                    ),
                                   ),
                                 ),
-                              ),
-                              GestureDetector(
-                                behavior: HitTestBehavior.opaque,
-                                onPanUpdate: (details) {
-                                  setState(() {
-                                    _hasManuallyResized = true;
-                                    final newH = (effectiveHeight + details.delta.dy).clamp(_minContentHeight, _maxContentHeight);
-                                    _customContentHeight = newH;
-                                  });
-                                },
-                                child: MouseRegion(
-                                  cursor: SystemMouseCursors.resizeDownRight,
-                                  child: Container(
-                                    width: 18,
-                                    height: 18,
-                                    alignment: Alignment.bottomRight,
-                                    padding: const EdgeInsets.all(2),
-                                    child: CustomPaint(
-                                      size: const Size(12, 12),
-                                      painter: ResizeGripPainter(
-                                        color: subtextColor.withAlpha(isDark ? 190 : 210),
+                                GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onPanUpdate: (details) {
+                                    setState(() {
+                                      _hasManuallyResized = true;
+                                      final newH = (effectiveHeight + details.delta.dy).clamp(_minContentHeight, _maxContentHeight);
+                                      _customContentHeight = newH;
+                                    });
+                                  },
+                                  child: MouseRegion(
+                                    cursor: SystemMouseCursors.resizeDownRight,
+                                    child: Container(
+                                      width: 18,
+                                      height: 18,
+                                      alignment: Alignment.bottomRight,
+                                      padding: const EdgeInsets.all(2),
+                                      child: CustomPaint(
+                                        size: const Size(12, 12),
+                                        painter: ResizeGripPainter(
+                                          color: subtextColor.withAlpha(isDark ? 190 : 210),
+                                        ),
                                       ),
                                     ),
                                   ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
+                  ],
 
                   if (_errorText != null) ...[
                     const SizedBox(height: 6),

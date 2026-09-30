@@ -30,6 +30,43 @@ class DatabaseService {
     return directory;
   }
 
+  static Directory getStorageDirectorySync() {
+    Directory directory;
+    if (!kIsWeb && Platform.isWindows) {
+      final appData = Platform.environment['APPDATA'];
+      final localAppData = Platform.environment['LOCALAPPDATA'];
+      final userProfile = Platform.environment['USERPROFILE'];
+
+      final basePath = appData ?? localAppData ?? userProfile ?? Directory.current.path;
+      directory = Directory('$basePath\\Cnote');
+    } else {
+      directory = Directory('${Directory.current.path}/.cnote');
+    }
+
+    if (!directory.existsSync()) {
+      directory.createSync(recursive: true);
+    }
+    return directory;
+  }
+
+  static Future<Directory> getImagesDirectory() async {
+    final baseDir = await getStorageDirectory();
+    final imagesDir = Directory('${baseDir.path}\\images');
+    if (!await imagesDir.exists()) {
+      await imagesDir.create(recursive: true);
+    }
+    return imagesDir;
+  }
+
+  static Directory getImagesDirectorySync() {
+    final baseDir = getStorageDirectorySync();
+    final imagesDir = Directory('${baseDir.path}\\images');
+    if (!imagesDir.existsSync()) {
+      imagesDir.createSync(recursive: true);
+    }
+    return imagesDir;
+  }
+
   static Future<File> getDatabaseFile() async {
     if (_dbFile != null) return _dbFile!;
     final directory = await getStorageDirectory();
@@ -191,19 +228,35 @@ class DatabaseService {
     }
   }
 
-  /// Generate a unified backup JSON string containing app version, timestamp, settings, and all clips
+  /// Generate a unified backup JSON string containing app version, timestamp, settings, and all clips (including embedded images)
   static String createBackupJsonString(DockSettings settings, List<ClipItem> clips) {
+    final clipsJson = clips.map((c) {
+      final json = c.toJson();
+      if (c.isImage && c.imagePath != null && c.imagePath!.isNotEmpty) {
+        try {
+          final file = File(c.imagePath!);
+          if (file.existsSync()) {
+            final bytes = file.readAsBytesSync();
+            json['imageBase64'] = base64Encode(bytes);
+          }
+        } catch (e) {
+          debugPrint('Error serializing image for backup: $e');
+        }
+      }
+      return json;
+    }).toList();
+
     final backupData = {
       'app': 'ClipDock',
-      'version': '1.1.0',
+      'version': '1.2.0',
       'exportedAt': DateTime.now().toIso8601String(),
       'settings': settings.toJson(),
-      'clips': clips.map((c) => c.toJson()).toList(),
+      'clips': clipsJson,
     };
     return const JsonEncoder.withIndent('  ').convert(backupData);
   }
 
-  /// Parse unified backup JSON or legacy clip list JSON
+  /// Parse unified backup JSON or legacy clip list JSON, restoring image files into local storage
   static RestoredBackupData? parseBackupJson(String raw) {
     try {
       final decoded = jsonDecode(raw);
@@ -215,9 +268,34 @@ class DatabaseService {
 
         final List<ClipItem> restoredClips = [];
         if (decoded.containsKey('clips') && decoded['clips'] is List) {
+          final imagesDir = getImagesDirectorySync();
           for (var entry in decoded['clips'] as List) {
             if (entry is Map<String, dynamic>) {
-              restoredClips.add(ClipItem.fromJson(entry));
+              final clip = ClipItem.fromJson(entry);
+              if (clip.isImage) {
+                final imageBase64 = entry['imageBase64'] as String?;
+                if (imageBase64 != null && imageBase64.isNotEmpty) {
+                  try {
+                    bool fileExists = false;
+                    if (clip.imagePath != null && clip.imagePath!.isNotEmpty) {
+                      fileExists = File(clip.imagePath!).existsSync();
+                    }
+                    if (!fileExists) {
+                      final ext = (clip.imagePath != null && clip.imagePath!.toLowerCase().endsWith('.png'))
+                          ? 'png'
+                          : 'bmp';
+                      final targetFile = File('${imagesDir.path}\\img_${clip.id}.$ext');
+                      final bytes = base64Decode(imageBase64);
+                      targetFile.writeAsBytesSync(bytes, flush: true);
+                      clip.imagePath = targetFile.path;
+                      clip.content = targetFile.path;
+                    }
+                  } catch (e) {
+                    debugPrint('Error restoring image file from backup: $e');
+                  }
+                }
+              }
+              restoredClips.add(clip);
             }
           }
         }
@@ -227,10 +305,35 @@ class DatabaseService {
           clips: restoredClips,
         );
       } else if (decoded is List) {
+        final imagesDir = getImagesDirectorySync();
         final List<ClipItem> legacyClips = [];
         for (var entry in decoded) {
           if (entry is Map<String, dynamic>) {
-            legacyClips.add(ClipItem.fromJson(entry));
+            final clip = ClipItem.fromJson(entry);
+            if (clip.isImage) {
+              final imageBase64 = entry['imageBase64'] as String?;
+              if (imageBase64 != null && imageBase64.isNotEmpty) {
+                try {
+                  bool fileExists = false;
+                  if (clip.imagePath != null && clip.imagePath!.isNotEmpty) {
+                    fileExists = File(clip.imagePath!).existsSync();
+                  }
+                  if (!fileExists) {
+                    final ext = (clip.imagePath != null && clip.imagePath!.toLowerCase().endsWith('.png'))
+                        ? 'png'
+                        : 'bmp';
+                    final targetFile = File('${imagesDir.path}\\img_${clip.id}.$ext');
+                    final bytes = base64Decode(imageBase64);
+                    targetFile.writeAsBytesSync(bytes, flush: true);
+                    clip.imagePath = targetFile.path;
+                    clip.content = targetFile.path;
+                  }
+                } catch (e) {
+                  debugPrint('Error restoring legacy image file from backup: $e');
+                }
+              }
+            }
+            legacyClips.add(clip);
           }
         }
         return RestoredBackupData(

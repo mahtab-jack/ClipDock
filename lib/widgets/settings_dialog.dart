@@ -1,4 +1,4 @@
-import 'dart:io';
+﻿import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -7,7 +7,9 @@ import '../models/clip_item.dart';
 import '../models/dock_settings.dart';
 import '../services/database_service.dart';
 import '../services/startup_service.dart';
+import '../services/telegram_service.dart';
 import '../theme/app_theme.dart';
+import 'telegram_icon.dart';
 
 class SettingsDialog extends StatefulWidget {
   final bool isDark;
@@ -34,10 +36,17 @@ class SettingsDialog extends StatefulWidget {
 class _SettingsDialogState extends State<SettingsDialog> {
   final TextEditingController _importController = TextEditingController();
   final TextEditingController _hexController = TextEditingController();
+  late final TextEditingController _maxCharsController;
+  late final TextEditingController _telegramTokenController;
+  late final TextEditingController _telegramChannelController;
   bool _isImporting = false;
   bool _launchOnStartup = false;
   bool _isLoadingStartup = true;
   String? _statusMessage;
+  bool _isTestingTelegram = false;
+  String? _telegramTestResult;
+  bool _telegramTestSuccess = false;
+  bool _obscureTelegramToken = true;
 
   late DockSettings _currentSettings;
 
@@ -82,6 +91,9 @@ class _SettingsDialogState extends State<SettingsDialog> {
     super.initState();
     _currentSettings = widget.settings.copyWith();
     _hexController.text = _colorToHex(_currentSettings.ribbonColor);
+    _maxCharsController = TextEditingController(text: _currentSettings.maxAutoChars.toString());
+    _telegramTokenController = TextEditingController(text: _currentSettings.telegramBotToken);
+    _telegramChannelController = TextEditingController(text: _currentSettings.telegramChannelId);
     _loadStartupState();
   }
 
@@ -137,10 +149,50 @@ class _SettingsDialogState extends State<SettingsDialog> {
     widget.onSettingsChanged(updated);
   }
 
+  Future<void> _testTelegramConnection() async {
+    final token = _telegramTokenController.text.trim();
+    final channelId = _telegramChannelController.text.trim();
+
+    if (token.isEmpty) {
+      setState(() {
+        _telegramTestSuccess = false;
+        _telegramTestResult = 'Please enter a Telegram Bot Token first';
+      });
+      return;
+    }
+
+    setState(() {
+      _isTestingTelegram = true;
+      _telegramTestResult = null;
+    });
+
+    final res = await TelegramService.testConnection(
+      botToken: token,
+      chatId: channelId,
+    );
+
+    if (mounted) {
+      setState(() {
+        _isTestingTelegram = false;
+        _telegramTestSuccess = res.success;
+        if (res.success) {
+          _telegramTestResult = channelId.isNotEmpty
+              ? 'Verified @${res.botName ?? "bot"} and delivered test message to channel.'
+              : 'Bot token verified (@${res.botName ?? "bot"}). Channel ID was not set.';
+        } else {
+          _telegramTestResult = res.error ?? 'Connection test failed';
+        }
+      });
+    }
+  }
+
   @override
   void dispose() {
     _importController.dispose();
     _hexController.dispose();
+    _maxCharsController.dispose();
+    _telegramTokenController.dispose();
+    _telegramChannelController.dispose();
     super.dispose();
   }
 
@@ -661,6 +713,121 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                                   ),
                                 ],
                               ),
+
+                              // Max chars setting (for auto clips only)
+                              if (_currentSettings.autoCapture) ...[
+                                const SizedBox(height: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: isDark ? Colors.black.withAlpha(50) : Colors.black.withAlpha(10),
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(
+                                      color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle,
+                                      width: 0.8,
+                                    ),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  'Max chars (Auto-capture)',
+                                                  style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: textColor),
+                                                ),
+                                                Text(
+                                                  'Ignore copied items exceeding this character limit',
+                                                  style: TextStyle(fontSize: 9.5, color: subtextColor),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Container(
+                                            width: 76,
+                                            height: 26,
+                                            decoration: BoxDecoration(
+                                              color: isDark ? AppColors.darkGlassSurface : AppColors.lightGlassSurface,
+                                              borderRadius: BorderRadius.circular(5),
+                                              border: Border.all(
+                                                color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle,
+                                              ),
+                                            ),
+                                            alignment: Alignment.center,
+                                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                                            child: TextField(
+                                              controller: _maxCharsController,
+                                              keyboardType: TextInputType.number,
+                                              textAlign: TextAlign.center,
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w600,
+                                                color: textColor,
+                                              ),
+                                              decoration: const InputDecoration(
+                                                border: InputBorder.none,
+                                                isDense: true,
+                                                contentPadding: EdgeInsets.zero,
+                                              ),
+                                              onChanged: (val) {
+                                                final parsed = int.tryParse(val.replaceAll(RegExp(r'[^0-9]'), ''));
+                                                if (parsed != null && parsed > 0) {
+                                                  _updateSettings(_currentSettings.copyWith(maxAutoChars: parsed));
+                                                }
+                                              },
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Wrap(
+                                        spacing: 6,
+                                        children: [5000, 15000, 50000, 100000].map((count) {
+                                          final isSelected = _currentSettings.maxAutoChars == count;
+                                          return InkWell(
+                                            onTap: () {
+                                              _maxCharsController.text = count.toString();
+                                              _updateSettings(_currentSettings.copyWith(maxAutoChars: count));
+                                            },
+                                            borderRadius: BorderRadius.circular(4),
+                                            child: Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
+                                              decoration: BoxDecoration(
+                                                color: isSelected
+                                                    ? (isDark ? AppColors.accentCyan.withAlpha(45) : const Color(0xFF0284C7).withAlpha(35))
+                                                    : Colors.transparent,
+                                                borderRadius: BorderRadius.circular(4),
+                                                border: Border.all(
+                                                  color: isSelected
+                                                      ? (isDark ? AppColors.accentCyan : const Color(0xFF0284C7))
+                                                      : (isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle),
+                                                  width: 0.8,
+                                                ),
+                                              ),
+                                              child: Text(
+                                                count == 15000 ? '15k (Default)' : 'k',
+                                                style: TextStyle(
+                                                  fontSize: 9,
+                                                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                                                  color: isSelected
+                                                      ? (isDark ? AppColors.accentCyan : const Color(0xFF0284C7))
+                                                      : subtextColor,
+                                                ),
+                                              ),
+                                            ),
+                                          );
+                                        }).toList(),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                               const SizedBox(height: 6),
 
                               // Right click panel to paste toggle
@@ -1326,6 +1493,266 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                                   ),
                                 ),
                               ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+
+                        // Section 5: Telegram Channel Integration
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: cardBg,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const TelegramIcon(size: 16, color: Color(0xFF2AABEE)),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Telegram Channel Integration',
+                                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: textColor),
+                                        ),
+                                        Text(
+                                          'Forward clips directly to a Telegram channel via a bot',
+                                          style: TextStyle(fontSize: 9.5, color: subtextColor),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+
+                              // Bot Token Field
+                              Text(
+                                'Bot Token',
+                                style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: textColor),
+                              ),
+                              const SizedBox(height: 3),
+                              Container(
+                                height: 32,
+                                decoration: BoxDecoration(
+                                  color: isDark ? AppColors.darkGlassSurface : AppColors.lightGlassSurface,
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(
+                                    color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle,
+                                  ),
+                                ),
+                                padding: const EdgeInsets.symmetric(horizontal: 8),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: TextField(
+                                        controller: _telegramTokenController,
+                                        obscureText: _obscureTelegramToken,
+                                        style: TextStyle(fontSize: 10.5, color: textColor),
+                                        decoration: InputDecoration(
+                                          hintText: 'e.g. 7123456789:AAHk...',
+                                          hintStyle: TextStyle(fontSize: 10, color: subtextColor.withAlpha(140)),
+                                          border: InputBorder.none,
+                                          isDense: true,
+                                          contentPadding: EdgeInsets.zero,
+                                        ),
+                                        onChanged: (val) {
+                                          _updateSettings(_currentSettings.copyWith(telegramBotToken: val.trim()));
+                                        },
+                                      ),
+                                    ),
+                                    IconButton(
+                                      onPressed: () {
+                                        setState(() {
+                                          _obscureTelegramToken = !_obscureTelegramToken;
+                                        });
+                                      },
+                                      iconSize: 14,
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
+                                      icon: Icon(
+                                        _obscureTelegramToken ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                                        color: subtextColor,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Create a bot via @BotFather on Telegram to obtain a Bot Token',
+                                style: TextStyle(fontSize: 8.5, color: subtextColor.withAlpha(180)),
+                              ),
+                              const SizedBox(height: 8),
+
+                              // Channel ID Field
+                              Text(
+                                'Channel ID / Username',
+                                style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: textColor),
+                              ),
+                              const SizedBox(height: 3),
+                              Container(
+                                height: 32,
+                                decoration: BoxDecoration(
+                                  color: isDark ? AppColors.darkGlassSurface : AppColors.lightGlassSurface,
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(
+                                    color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle,
+                                  ),
+                                ),
+                                padding: const EdgeInsets.symmetric(horizontal: 8),
+                                alignment: Alignment.centerLeft,
+                                child: TextField(
+                                  controller: _telegramChannelController,
+                                  style: TextStyle(fontSize: 10.5, color: textColor),
+                                  decoration: InputDecoration(
+                                    hintText: 'e.g. @your_channel or -1001234567890',
+                                    hintStyle: TextStyle(fontSize: 10, color: subtextColor.withAlpha(140)),
+                                    border: InputBorder.none,
+                                    isDense: true,
+                                    contentPadding: EdgeInsets.zero,
+                                  ),
+                                  onChanged: (val) {
+                                    _updateSettings(_currentSettings.copyWith(telegramChannelId: val.trim()));
+                                  },
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Add your bot as an Administrator in your channel with Post Messages permission',
+                                style: TextStyle(fontSize: 8.5, color: subtextColor.withAlpha(180)),
+                              ),
+                              const SizedBox(height: 10),
+
+                              // Test Connection Button & Result
+                              Row(
+                                children: [
+                                  InkWell(
+                                    onTap: _isTestingTelegram ? null : _testTelegramConnection,
+                                    borderRadius: BorderRadius.circular(6),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                      decoration: BoxDecoration(
+                                        color: isDark
+                                            ? const Color(0xFF2AABEE).withAlpha(40)
+                                            : const Color(0xFF2AABEE).withAlpha(30),
+                                        borderRadius: BorderRadius.circular(6),
+                                        border: Border.all(
+                                          color: const Color(0xFF2AABEE).withAlpha(120),
+                                          width: 0.9,
+                                        ),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          if (_isTestingTelegram) ...[
+                                            const SizedBox(
+                                              width: 11,
+                                              height: 11,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 1.5,
+                                                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF2AABEE)),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 6),
+                                          ] else ...[
+                                            const Icon(Icons.send_rounded, size: 12, color: Color(0xFF2AABEE)),
+                                            const SizedBox(width: 5),
+                                          ],
+                                          Text(
+                                            _isTestingTelegram ? 'Testing...' : 'Test Connection',
+                                            style: const TextStyle(
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.w600,
+                                              color: Color(0xFF2AABEE),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  if (_telegramTokenController.text.isNotEmpty || _telegramChannelController.text.isNotEmpty) ...[
+                                    const SizedBox(width: 6),
+                                    InkWell(
+                                      onTap: () {
+                                        _telegramTokenController.clear();
+                                        _telegramChannelController.clear();
+                                        setState(() {
+                                          _telegramTestResult = null;
+                                        });
+                                        _updateSettings(_currentSettings.copyWith(
+                                          telegramBotToken: '',
+                                          telegramChannelId: '',
+                                        ));
+                                      },
+                                      borderRadius: BorderRadius.circular(6),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                                        decoration: BoxDecoration(
+                                          color: Colors.transparent,
+                                          borderRadius: BorderRadius.circular(6),
+                                          border: Border.all(
+                                            color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle,
+                                            width: 0.8,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          'Clear',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w500,
+                                            color: subtextColor,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                              if (_telegramTestResult != null) ...[
+                                const SizedBox(height: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: _telegramTestSuccess
+                                        ? AppColors.accentEmerald.withAlpha(25)
+                                        : AppColors.accentRose.withAlpha(25),
+                                    borderRadius: BorderRadius.circular(5),
+                                    border: Border.all(
+                                      color: _telegramTestSuccess
+                                          ? AppColors.accentEmerald.withAlpha(120)
+                                          : AppColors.accentRose.withAlpha(120),
+                                      width: 0.8,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        _telegramTestSuccess ? Icons.check_circle_rounded : Icons.error_outline_rounded,
+                                        size: 13,
+                                        color: _telegramTestSuccess ? AppColors.accentEmerald : AppColors.accentRose,
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Expanded(
+                                        child: Text(
+                                          _telegramTestResult!,
+                                          style: TextStyle(
+                                            fontSize: 9.5,
+                                            fontWeight: FontWeight.w500,
+                                            color: _telegramTestSuccess ? AppColors.accentEmerald : AppColors.accentRose,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                         ),

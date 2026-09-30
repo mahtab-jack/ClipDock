@@ -2,12 +2,16 @@ class ClipItem {
   final String id;
   String title;
   String content;
-  final DateTime createdAt;
+  DateTime createdAt;
   DateTime? updatedAt;
   bool isStarred;
   bool isDeleted;
   bool isAuto;
   DateTime? deletedAt;
+  bool isImage;
+  String? imagePath;
+  String? customTitle;
+  String? imageBase64;
 
   ClipItem({
     required this.id,
@@ -19,6 +23,10 @@ class ClipItem {
     this.isDeleted = false,
     this.isAuto = false,
     this.deletedAt,
+    this.isImage = false,
+    this.imagePath,
+    this.customTitle,
+    this.imageBase64,
   });
 
   bool matchesSearch(String query) {
@@ -70,6 +78,10 @@ class ClipItem {
       'isDeleted': isDeleted,
       'isAuto': isAuto,
       'deletedAt': deletedAt?.toIso8601String(),
+      'isImage': isImage,
+      'imagePath': imagePath,
+      'customTitle': customTitle,
+      if (imageBase64 != null) 'imageBase64': imageBase64,
     };
   }
 
@@ -90,6 +102,10 @@ class ClipItem {
       deletedAt: json['deletedAt'] != null
           ? DateTime.tryParse(json['deletedAt'] as String)
           : null,
+      isImage: json['isImage'] as bool? ?? false,
+      imagePath: json['imagePath'] as String?,
+      customTitle: json['customTitle'] as String?,
+      imageBase64: json['imageBase64'] as String?,
     );
   }
 }

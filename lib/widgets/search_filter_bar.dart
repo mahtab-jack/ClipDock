@@ -8,6 +8,12 @@ enum ClipTab {
   trash,
 }
 
+enum MediaFilter {
+  all,
+  text,
+  image,
+}
+
 class SearchFilterBar extends StatelessWidget {
   final TextEditingController controller;
   final bool isDark;
@@ -16,11 +22,16 @@ class SearchFilterBar extends StatelessWidget {
   final int starredCount;
   final int trashCount;
   final ClipTab activeTab;
+  final MediaFilter activeMediaFilter;
+  final int textCount;
+  final int imageCount;
   final ValueChanged<ClipTab> onTabChanged;
+  final ValueChanged<MediaFilter> onMediaFilterChanged;
   final ValueChanged<String> onChanged;
   final VoidCallback onClear;
-  final VoidCallback onPaste;
+  final VoidCallback? onPaste;
   final VoidCallback? onEmptyTrash;
+  final VoidCallback? onClearAuto;
 
   const SearchFilterBar({
     super.key,
@@ -31,11 +42,16 @@ class SearchFilterBar extends StatelessWidget {
     required this.starredCount,
     required this.trashCount,
     required this.activeTab,
+    this.activeMediaFilter = MediaFilter.all,
+    this.textCount = 0,
+    this.imageCount = 0,
     required this.onTabChanged,
+    required this.onMediaFilterChanged,
     required this.onChanged,
     required this.onClear,
-    required this.onPaste,
+    this.onPaste,
     this.onEmptyTrash,
+    this.onClearAuto,
   });
 
   @override
@@ -125,7 +141,7 @@ class SearchFilterBar extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Tab 1: All clips
+                      // Tab 1: Clips
                       InkWell(
                         onTap: () => onTabChanged(ClipTab.all),
                         borderRadius: BorderRadius.circular(5),
@@ -145,7 +161,7 @@ class SearchFilterBar extends StatelessWidget {
                             ),
                           ),
                           child: Text(
-                            'All ($allCount)',
+                            'Clips ($allCount)',
                             style: TextStyle(
                               fontSize: 10.5,
                               fontWeight: activeTab == ClipTab.all ? FontWeight.w700 : FontWeight.w500,
@@ -156,50 +172,7 @@ class SearchFilterBar extends StatelessWidget {
                       ),
                       const SizedBox(width: 3),
 
-                      // Tab 2: Auto-captured clips
-                      InkWell(
-                        onTap: () => onTabChanged(ClipTab.auto),
-                        borderRadius: BorderRadius.circular(5),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 140),
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3.5),
-                          decoration: BoxDecoration(
-                            color: activeTab == ClipTab.auto
-                                ? (isDark ? AppColors.accentCyan.withAlpha(40) : AppColors.accentCyan.withAlpha(30))
-                                : Colors.transparent,
-                            borderRadius: BorderRadius.circular(5),
-                            border: Border.all(
-                              color: activeTab == ClipTab.auto
-                                  ? AppColors.accentCyan.withAlpha(140)
-                                  : Colors.transparent,
-                              width: 1,
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              LightningBoltIcon(
-                                size: 11.5,
-                                color: activeTab == ClipTab.auto ? AppColors.accentCyan : subtextColor,
-                              ),
-                              const SizedBox(width: 3),
-                              Text(
-                                'Auto ($autoCount)',
-                                style: TextStyle(
-                                  fontSize: 10.5,
-                                  fontWeight: activeTab == ClipTab.auto ? FontWeight.w700 : FontWeight.w500,
-                                  color: activeTab == ClipTab.auto
-                                      ? (isDark ? AppColors.accentCyan : const Color(0xFF0284C7))
-                                      : subtextColor,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 3),
-
-                      // Tab 3: Starred clips
+                      // Tab 2: Starred clips
                       InkWell(
                         onTap: () => onTabChanged(ClipTab.starred),
                         borderRadius: BorderRadius.circular(5),
@@ -243,7 +216,50 @@ class SearchFilterBar extends StatelessWidget {
                       ),
                       const SizedBox(width: 3),
 
-                      // Tab 3: Trash
+                      // Tab 3: Auto-captured clips
+                      InkWell(
+                        onTap: () => onTabChanged(ClipTab.auto),
+                        borderRadius: BorderRadius.circular(5),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 140),
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3.5),
+                          decoration: BoxDecoration(
+                            color: activeTab == ClipTab.auto
+                                ? (isDark ? AppColors.accentCyan.withAlpha(40) : AppColors.accentCyan.withAlpha(30))
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(5),
+                            border: Border.all(
+                              color: activeTab == ClipTab.auto
+                                  ? AppColors.accentCyan.withAlpha(140)
+                                  : Colors.transparent,
+                              width: 1,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              LightningBoltIcon(
+                                size: 11.5,
+                                color: activeTab == ClipTab.auto ? AppColors.accentCyan : subtextColor,
+                              ),
+                              const SizedBox(width: 3),
+                              Text(
+                                'Auto ($autoCount)',
+                                style: TextStyle(
+                                  fontSize: 10.5,
+                                  fontWeight: activeTab == ClipTab.auto ? FontWeight.w700 : FontWeight.w500,
+                                  color: activeTab == ClipTab.auto
+                                      ? (isDark ? AppColors.accentCyan : const Color(0xFF0284C7))
+                                      : subtextColor,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 3),
+
+                      // Tab 4: Trash
                       InkWell(
                         onTap: () => onTabChanged(ClipTab.trash),
                         borderRadius: BorderRadius.circular(5),
@@ -294,7 +310,7 @@ class SearchFilterBar extends StatelessWidget {
 
               const SizedBox(width: 4),
 
-              // Action Button on Right (+ Add in All/Starred, Empty Trash in Trash tab)
+              // Action Button on Right (Clear All in Auto tab, Empty Trash in Trash tab)
               if (activeTab == ClipTab.trash)
                 if (trashCount > 0 && onEmptyTrash != null)
                   InkWell(
@@ -333,46 +349,168 @@ class SearchFilterBar extends StatelessWidget {
                   )
                 else
                   const SizedBox.shrink()
-              else
-                Tooltip(
-                  message: 'Paste from Windows Clipboard',
-                  child: InkWell(
-                    onTap: onPaste,
-                    borderRadius: BorderRadius.circular(5),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3.5),
-                      decoration: BoxDecoration(
-                        color: isDark ? AppColors.accentSilver.withAlpha(35) : AppColors.lightHandle.withAlpha(25),
-                        borderRadius: BorderRadius.circular(5),
-                        border: Border.all(
-                          color: isDark ? AppColors.accentSilver.withAlpha(120) : AppColors.lightHandle.withAlpha(120),
-                          width: 1,
+              else if (activeTab == ClipTab.auto)
+                if (autoCount > 0 && onClearAuto != null)
+                  Tooltip(
+                    message: 'Clear all auto-captured clips',
+                    child: InkWell(
+                      onTap: onClearAuto,
+                      borderRadius: BorderRadius.circular(5),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3.5),
+                        decoration: BoxDecoration(
+                          color: isDark ? const Color(0xFFF43F5E).withAlpha(30) : const Color(0xFFF43F5E).withAlpha(20),
+                          borderRadius: BorderRadius.circular(5),
+                          border: Border.all(
+                            color: const Color(0xFFF43F5E).withAlpha(120),
+                            width: 1,
+                          ),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.delete_sweep_outlined,
+                              size: 12,
+                              color: Color(0xFFFB7185),
+                            ),
+                            SizedBox(width: 3),
+                            Text(
+                              'Clear All',
+                              style: TextStyle(
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFFFB7185),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.paste_rounded,
-                            size: 11,
-                            color: isDark ? AppColors.accentSilver : AppColors.lightHandle,
-                          ),
-                          const SizedBox(width: 2.5),
-                          Text(
-                            'Paste',
-                            style: TextStyle(
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w700,
-                              color: isDark ? AppColors.accentSilver : AppColors.lightHandle,
-                            ),
-                          ),
-                        ],
+                    ),
+                  )
+                else
+                  const SizedBox.shrink()
+              else
+                const SizedBox.shrink(),
+            ],
+          ),
+
+          // Sub-tabs [Text, Image] when multiple media types exist
+          if (textCount > 0 && imageCount > 0) ...[
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                InkWell(
+                  onTap: () => onMediaFilterChanged(MediaFilter.all),
+                  borderRadius: BorderRadius.circular(4),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 140),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
+                    decoration: BoxDecoration(
+                      color: activeMediaFilter == MediaFilter.all
+                          ? (isDark ? AppColors.darkGlassSurface : AppColors.lightGlassSurface)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(
+                        color: activeMediaFilter == MediaFilter.all
+                            ? (isDark ? AppColors.accentSilver.withAlpha(120) : AppColors.lightHandle.withAlpha(120))
+                            : Colors.transparent,
+                        width: 1,
+                      ),
+                    ),
+                    child: Text(
+                      'All',
+                      style: TextStyle(
+                        fontSize: 9.5,
+                        fontWeight: activeMediaFilter == MediaFilter.all ? FontWeight.w700 : FontWeight.w500,
+                        color: activeMediaFilter == MediaFilter.all ? textColor : subtextColor,
                       ),
                     ),
                   ),
                 ),
-            ],
-          ),
+                const SizedBox(width: 4),
+                InkWell(
+                  onTap: () => onMediaFilterChanged(MediaFilter.text),
+                  borderRadius: BorderRadius.circular(4),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 140),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
+                    decoration: BoxDecoration(
+                      color: activeMediaFilter == MediaFilter.text
+                          ? (isDark ? AppColors.accentCyan.withAlpha(35) : AppColors.accentCyan.withAlpha(25))
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(
+                        color: activeMediaFilter == MediaFilter.text
+                            ? AppColors.accentCyan.withAlpha(120)
+                            : Colors.transparent,
+                        width: 1,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.text_fields_rounded,
+                          size: 11,
+                          color: activeMediaFilter == MediaFilter.text ? (isDark ? AppColors.accentCyan : const Color(0xFF0284C7)) : subtextColor,
+                        ),
+                        const SizedBox(width: 3),
+                        Text(
+                          'Text ($textCount)',
+                          style: TextStyle(
+                            fontSize: 9.5,
+                            fontWeight: activeMediaFilter == MediaFilter.text ? FontWeight.w700 : FontWeight.w500,
+                            color: activeMediaFilter == MediaFilter.text ? (isDark ? AppColors.accentCyan : const Color(0xFF0284C7)) : subtextColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                InkWell(
+                  onTap: () => onMediaFilterChanged(MediaFilter.image),
+                  borderRadius: BorderRadius.circular(4),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 140),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
+                    decoration: BoxDecoration(
+                      color: activeMediaFilter == MediaFilter.image
+                          ? (isDark ? AppColors.accentEmerald.withAlpha(35) : AppColors.accentEmerald.withAlpha(25))
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(
+                        color: activeMediaFilter == MediaFilter.image
+                            ? AppColors.accentEmerald.withAlpha(120)
+                            : Colors.transparent,
+                        width: 1,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.image_outlined,
+                          size: 11,
+                          color: activeMediaFilter == MediaFilter.image ? AppColors.accentEmerald : subtextColor,
+                        ),
+                        const SizedBox(width: 3),
+                        Text(
+                          'Image ($imageCount)',
+                          style: TextStyle(
+                            fontSize: 9.5,
+                            fontWeight: activeMediaFilter == MediaFilter.image ? FontWeight.w700 : FontWeight.w500,
+                            color: activeMediaFilter == MediaFilter.image ? AppColors.accentEmerald : subtextColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );

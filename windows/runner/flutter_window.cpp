@@ -6,6 +6,9 @@
 #include "flutter/generated_plugin_registrant.h"
 #include "drag_drop_helper.h"
 
+#include <fstream>
+#include <vector>
+
 static HWND g_last_external_window = NULL;
 static HWND g_last_external_focus = NULL;
 
@@ -84,16 +87,12 @@ static void PasteTextIntoWindow(HWND self_hwnd, const std::wstring& wide_text) {
   Sleep(45);
 
   // 6. Simulate Ctrl+V using hardware scan codes and keybd_event & SendInput
-  // Ctrl DOWN
   keybd_event(VK_CONTROL, 0x1D, 0, 0);
   Sleep(15);
-  // V DOWN
   keybd_event('V', 0x2F, 0, 0);
   Sleep(15);
-  // V UP
   keybd_event('V', 0x2F, KEYEVENTF_KEYUP, 0);
   Sleep(15);
-  // Ctrl UP
   keybd_event(VK_CONTROL, 0x1D, KEYEVENTF_KEYUP, 0);
 
   Sleep(25);
@@ -101,6 +100,161 @@ static void PasteTextIntoWindow(HWND self_hwnd, const std::wstring& wide_text) {
   // 7. Detach thread input AFTER key events are processed
   if (attached) {
     AttachThreadInput(current_thread, target_thread, FALSE);
+  }
+}
+
+// Save CF_DIB / CF_DIBV5 from clipboard directly as BMP file
+static bool SaveClipboardImageToFile(HWND self_hwnd, const std::wstring& target_path) {
+  if (!OpenClipboard(self_hwnd)) {
+    return false;
+  }
+
+  UINT format = 0;
+  if (IsClipboardFormatAvailable(CF_DIBV5)) {
+    format = CF_DIBV5;
+  } else if (IsClipboardFormatAvailable(CF_DIB)) {
+    format = CF_DIB;
+  }
+
+  if (format == 0) {
+    CloseClipboard();
+    return false;
+  }
+
+  HANDLE hData = GetClipboardData(format);
+  if (!hData) {
+    CloseClipboard();
+    return false;
+  }
+
+  SIZE_T dib_size = GlobalSize(hData);
+  void* pDib = GlobalLock(hData);
+  if (!pDib || dib_size < sizeof(BITMAPINFOHEADER)) {
+    if (pDib) GlobalUnlock(hData);
+    CloseClipboard();
+    return false;
+  }
+
+  BITMAPINFOHEADER* bih = reinterpret_cast<BITMAPINFOHEADER*>(pDib);
+  DWORD off_bits = sizeof(BITMAPFILEHEADER) + bih->biSize;
+
+  DWORD colors = 0;
+  if (bih->biBitCount <= 8) {
+    colors = bih->biClrUsed ? bih->biClrUsed : (1 << bih->biBitCount);
+    off_bits += colors * sizeof(RGBQUAD);
+  } else if (bih->biCompression == BI_BITFIELDS) {
+    off_bits += 3 * sizeof(DWORD);
+  }
+
+  BITMAPFILEHEADER bfh = {};
+  bfh.bfType = 0x4D42; // 'BM'
+  bfh.bfSize = static_cast<DWORD>(sizeof(BITMAPFILEHEADER) + dib_size);
+  bfh.bfOffBits = off_bits;
+
+  std::ofstream out(target_path, std::ios::binary);
+  if (!out.is_open()) {
+    GlobalUnlock(hData);
+    CloseClipboard();
+    return false;
+  }
+
+  out.write(reinterpret_cast<const char*>(&bfh), sizeof(bfh));
+  out.write(reinterpret_cast<const char*>(pDib), dib_size);
+  out.close();
+
+  GlobalUnlock(hData);
+  CloseClipboard();
+  return true;
+}
+
+// Copy BMP file to Windows clipboard as CF_DIB
+static bool CopyBmpFileToClipboard(HWND self_hwnd, const std::wstring& file_path) {
+  std::ifstream in(file_path, std::ios::binary | std::ios::ate);
+  if (!in.is_open()) return false;
+
+  std::streamsize file_size = in.tellg();
+  if (file_size <= static_cast<std::streamsize>(sizeof(BITMAPFILEHEADER))) return false;
+
+  in.seekg(0, std::ios::beg);
+  BITMAPFILEHEADER bfh;
+  in.read(reinterpret_cast<char*>(&bfh), sizeof(bfh));
+  if (bfh.bfType != 0x4D42) return false;
+
+  size_t dib_size = static_cast<size_t>(file_size - sizeof(BITMAPFILEHEADER));
+  HGLOBAL hGlobal = GlobalAlloc(GMEM_MOVEABLE, dib_size);
+  if (!hGlobal) return false;
+
+  void* pDest = GlobalLock(hGlobal);
+  if (!pDest) {
+    GlobalFree(hGlobal);
+    return false;
+  }
+
+  in.read(reinterpret_cast<char*>(pDest), dib_size);
+  GlobalUnlock(hGlobal);
+
+  if (OpenClipboard(self_hwnd)) {
+    EmptyClipboard();
+    SetClipboardData(CF_DIB, hGlobal);
+    CloseClipboard();
+    return true;
+  } else {
+    GlobalFree(hGlobal);
+    return false;
+  }
+}
+
+static void PasteImageIntoWindow(HWND self_hwnd, const std::wstring& file_path) {
+  if (CopyBmpFileToClipboard(self_hwnd, file_path)) {
+    // Identify target window and send Ctrl+V
+    HWND target_hwnd = g_last_external_window;
+    if (target_hwnd == NULL || !IsWindow(target_hwnd)) {
+      HWND fg = GetForegroundWindow();
+      if (fg != NULL && fg != self_hwnd && GetAncestor(fg, GA_ROOT) != self_hwnd) {
+        target_hwnd = fg;
+      }
+    }
+
+    if (target_hwnd == NULL || !IsWindow(target_hwnd)) {
+      return;
+    }
+
+    DWORD current_thread = GetCurrentThreadId();
+    DWORD target_thread = GetWindowThreadProcessId(target_hwnd, NULL);
+
+    BOOL attached = FALSE;
+    if (current_thread != target_thread) {
+      attached = AttachThreadInput(current_thread, target_thread, TRUE);
+    }
+
+    AllowSetForegroundWindow(ASFW_ANY);
+
+    SetForegroundWindow(target_hwnd);
+    SetActiveWindow(target_hwnd);
+    BringWindowToTop(target_hwnd);
+
+    HWND focus_target = g_last_external_focus;
+    if (focus_target != NULL && IsWindow(focus_target)) {
+      SetFocus(focus_target);
+    } else {
+      SetFocus(target_hwnd);
+    }
+
+    Sleep(45);
+
+    keybd_event(VK_CONTROL, 0x1D, 0, 0);
+    Sleep(15);
+    keybd_event('V', 0x2F, 0, 0);
+    Sleep(15);
+    keybd_event('V', 0x2F, KEYEVENTF_KEYUP, 0);
+    Sleep(15);
+    keybd_event(VK_CONTROL, 0x1D, KEYEVENTF_KEYUP, 0);
+
+    Sleep(25);
+
+    if (attached) {
+      AttachThreadInput(current_thread, target_thread, FALSE);
+    }
   }
 }
 
@@ -257,6 +411,85 @@ bool FlutterWindow::OnCreate() {
             }
           }
           result->Error("BAD_ARGS", "Missing text argument");
+          return;
+        }
+
+        if (call.method_name() == "hasClipboardImage") {
+          bool has_image = false;
+          if (OpenClipboard(self_hwnd)) {
+            has_image = IsClipboardFormatAvailable(CF_DIB) || IsClipboardFormatAvailable(CF_DIBV5);
+            CloseClipboard();
+          }
+          result->Success(flutter::EncodableValue(has_image));
+          return;
+        }
+
+        if (call.method_name() == "saveClipboardImage") {
+          const auto* arguments = std::get_if<flutter::EncodableMap>(call.arguments());
+          if (arguments) {
+            auto path_it = arguments->find(flutter::EncodableValue("filePath"));
+            if (path_it != arguments->end() && std::holds_alternative<std::string>(path_it->second)) {
+              std::string utf8_path = std::get<std::string>(path_it->second);
+              int wlen = MultiByteToWideChar(CP_UTF8, 0, utf8_path.c_str(), -1, nullptr, 0);
+              if (wlen > 0) {
+                std::wstring wide_path(wlen, 0);
+                MultiByteToWideChar(CP_UTF8, 0, utf8_path.c_str(), -1, &wide_path[0], wlen);
+                if (!wide_path.empty() && wide_path.back() == L'\0') {
+                  wide_path.pop_back();
+                }
+                bool ok = SaveClipboardImageToFile(self_hwnd, wide_path);
+                result->Success(flutter::EncodableValue(ok));
+                return;
+              }
+            }
+          }
+          result->Error("BAD_ARGS", "Missing filePath argument");
+          return;
+        }
+
+        if (call.method_name() == "copyImageToClipboard") {
+          const auto* arguments = std::get_if<flutter::EncodableMap>(call.arguments());
+          if (arguments) {
+            auto path_it = arguments->find(flutter::EncodableValue("filePath"));
+            if (path_it != arguments->end() && std::holds_alternative<std::string>(path_it->second)) {
+              std::string utf8_path = std::get<std::string>(path_it->second);
+              int wlen = MultiByteToWideChar(CP_UTF8, 0, utf8_path.c_str(), -1, nullptr, 0);
+              if (wlen > 0) {
+                std::wstring wide_path(wlen, 0);
+                MultiByteToWideChar(CP_UTF8, 0, utf8_path.c_str(), -1, &wide_path[0], wlen);
+                if (!wide_path.empty() && wide_path.back() == L'\0') {
+                  wide_path.pop_back();
+                }
+                bool ok = CopyBmpFileToClipboard(self_hwnd, wide_path);
+                result->Success(flutter::EncodableValue(ok));
+                return;
+              }
+            }
+          }
+          result->Error("BAD_ARGS", "Missing filePath argument");
+          return;
+        }
+
+        if (call.method_name() == "fillImageIntoActiveWindow") {
+          const auto* arguments = std::get_if<flutter::EncodableMap>(call.arguments());
+          if (arguments) {
+            auto path_it = arguments->find(flutter::EncodableValue("filePath"));
+            if (path_it != arguments->end() && std::holds_alternative<std::string>(path_it->second)) {
+              std::string utf8_path = std::get<std::string>(path_it->second);
+              int wlen = MultiByteToWideChar(CP_UTF8, 0, utf8_path.c_str(), -1, nullptr, 0);
+              if (wlen > 0) {
+                std::wstring wide_path(wlen, 0);
+                MultiByteToWideChar(CP_UTF8, 0, utf8_path.c_str(), -1, &wide_path[0], wlen);
+                if (!wide_path.empty() && wide_path.back() == L'\0') {
+                  wide_path.pop_back();
+                }
+                PasteImageIntoWindow(self_hwnd, wide_path);
+                result->Success(flutter::EncodableValue(true));
+                return;
+              }
+            }
+          }
+          result->Error("BAD_ARGS", "Missing filePath argument");
           return;
         }
 

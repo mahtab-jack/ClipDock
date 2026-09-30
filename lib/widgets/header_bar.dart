@@ -10,6 +10,7 @@ class HeaderBar extends StatelessWidget {
   final VoidCallback onToggleTheme;
   final VoidCallback onCollapse;
   final VoidCallback onAdd;
+  final VoidCallback? onPaste;
   final VoidCallback? onMinimize;
 
   const HeaderBar({
@@ -21,6 +22,7 @@ class HeaderBar extends StatelessWidget {
     required this.onToggleTheme,
     required this.onCollapse,
     required this.onAdd,
+    this.onPaste,
     this.onMinimize,
   });
 
@@ -63,6 +65,51 @@ class HeaderBar extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 4),
+
+          // Paste Button on Top Bar before Add button
+          if (onPaste != null) ...[
+            Tooltip(
+              message: 'Paste from Windows Clipboard',
+              child: InkWell(
+                onTap: onPaste,
+                borderRadius: BorderRadius.circular(5),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3.5),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? AppColors.accentSilver.withAlpha(35)
+                        : AppColors.lightHandle.withAlpha(25),
+                    borderRadius: BorderRadius.circular(5),
+                    border: Border.all(
+                      color: isDark ? AppColors.accentSilver.withAlpha(120) : AppColors.lightHandle.withAlpha(120),
+                      width: 1,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.paste_rounded,
+                        size: 11,
+                        color: isDark ? AppColors.accentSilver : AppColors.lightHandle,
+                      ),
+                      const SizedBox(width: 3),
+                      Text(
+                        'Paste',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: isDark ? AppColors.accentSilver : AppColors.lightHandle,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+          ],
 
           // + Add Button on Top Header
           Tooltip(
@@ -261,15 +308,10 @@ class _CollapseChevronPainter extends CustomPainter {
     final w = size.width;
     final h = size.height;
 
-    // First chevron <
-    path.moveTo(w * 0.46, h * 0.15);
-    path.lineTo(w * 0.12, h * 0.50);
-    path.lineTo(w * 0.46, h * 0.85);
-
-    // Second chevron <
-    path.moveTo(w * 0.88, h * 0.15);
-    path.lineTo(w * 0.54, h * 0.50);
-    path.lineTo(w * 0.88, h * 0.85);
+    // Single chevron <
+    path.moveTo(w * 0.65, h * 0.18);
+    path.lineTo(w * 0.30, h * 0.50);
+    path.lineTo(w * 0.65, h * 0.82);
 
     canvas.drawPath(path, paint);
   }

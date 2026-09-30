@@ -166,7 +166,6 @@ class _AddClipDialogState extends State<AddClipDialog> {
                     ),
                     child: TextField(
                       controller: _titleController,
-                      autofocus: true,
                       style: TextStyle(fontSize: 12, color: textColor),
                       decoration: InputDecoration(
                         hintText: 'e.g. Work Email, Server IP, Note...',
@@ -200,6 +199,7 @@ class _AddClipDialogState extends State<AddClipDialog> {
                               behavior: ScrollConfiguration.of(context).copyWith(scrollbars: true),
                               child: TextField(
                                 controller: _contentController,
+                                autofocus: true,
                                 maxLines: null,
                                 keyboardType: TextInputType.multiline,
                                 style: TextStyle(fontSize: 12, color: textColor),

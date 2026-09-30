@@ -17,11 +17,13 @@ import 'edit_clip_dialog.dart';
 import 'header_bar.dart';
 import 'search_filter_bar.dart';
 import 'settings_dialog.dart';
+import '../services/telegram_service.dart';
 
 enum ToastType {
   success,
   warning,
   info,
+  error,
 }
 
 class EdgeDockWidget extends StatefulWidget {
@@ -48,6 +50,7 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
 
   DockSettings _settings = DockSettings();
   ClipTab _activeTab = ClipTab.all;
+  MediaFilter _activeMediaFilter = MediaFilter.all;
 
   bool _isExpanded = false;
   bool _isPinned = false;
@@ -60,6 +63,8 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
   String? _toastMessage;
   ToastType _toastType = ToastType.success;
   Timer? _toastTimer;
+  double? _toastProgress;
+  String? _sendingTelegramClipId;
 
   double get _panelWidth => _settings.panelWidth;
   static const double _windowHeight = 680.0;
@@ -347,30 +352,106 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
     });
   }
 
+  static const MethodChannel _nativeChannel = MethodChannel('cnote/drag_drop');
+  int? _lastImageCheckTime;
+
   Future<void> _checkClipboardChanges() async {
     try {
       if (!_settings.autoCapture) return;
+
+      // 1. Check for clipboard image
+      if (!kIsWeb && Platform.isWindows) {
+        final hasImage = await _nativeChannel.invokeMethod<bool>('hasClipboardImage') ?? false;
+        if (hasImage) {
+          final nowMs = DateTime.now().millisecondsSinceEpoch;
+          // Throttle repeated capture of the same image
+          if (_lastImageCheckTime == null || (nowMs - _lastImageCheckTime!) > 1500) {
+            final imagesDir = await DatabaseService.getImagesDirectory();
+            final timestamp = DateTime.now().millisecondsSinceEpoch;
+            final imageFilePath = '${imagesDir.path}\\img_$timestamp.bmp';
+            final success = await _nativeChannel.invokeMethod<bool>('saveClipboardImage', {
+              'filePath': imageFilePath,
+            }) ?? false;
+
+            if (success && File(imageFilePath).existsSync()) {
+              final fileSize = File(imageFilePath).lengthSync();
+              // Check if already captured recently with identical size
+              final exists = _clips.any((c) => c.isImage && c.imagePath != null && File(c.imagePath!).existsSync() && File(c.imagePath!).lengthSync() == fileSize);
+              if (!exists) {
+                _lastImageCheckTime = nowMs;
+                await _autoCaptureImage(imageFilePath);
+                return;
+              }
+            }
+          }
+        }
+      }
+
+      // 2. Check for clipboard text
       final data = await Clipboard.getData(Clipboard.kTextPlain);
       final text = data?.text?.trim();
       if (text == null || text.isEmpty) return;
 
       if (text != _lastMonitoredClipboard) {
         _lastMonitoredClipboard = text;
+        if (_settings.maxAutoChars > 0 && text.length > _settings.maxAutoChars) {
+          return;
+        }
         await _autoCaptureClip(text);
       }
     } catch (_) {}
   }
 
+  Future<void> _autoCaptureImage(String imagePath) async {
+    final newClip = ClipItem(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      title: 'Captured Image',
+      content: imagePath,
+      createdAt: DateTime.now(),
+      isDeleted: false,
+      isAuto: true,
+      isImage: true,
+      imagePath: imagePath,
+    );
+
+    setState(() {
+      _clips.insert(0, newClip);
+      _applyFilter();
+    });
+
+    _showNotification('Auto-saved image to Auto tab', ToastType.info);
+    await _persistClips();
+  }
+
   Future<void> _autoCaptureClip(String text) async {
-    final existingIndex = _clips.indexWhere((c) => c.content == text);
+    final existingIndex = _clips.indexWhere((c) => !c.isImage && c.content == text);
     if (existingIndex >= 0) {
-      // Clip already exists, preserve its current position in the list
+      final existing = _clips[existingIndex];
+      // If the clip already belongs to the manual Clips tab, preserve it in Clips tab
+      if (!existing.isAuto && !existing.isDeleted) {
+        return;
+      }
+      // If it already exists in the Auto tab (or was in Trash), bring it to the top of Auto tab
+      if (existing.isAuto) {
+        setState(() {
+          _clips.removeAt(existingIndex);
+          existing.isDeleted = false;
+          existing.deletedAt = null;
+          existing.createdAt = DateTime.now();
+          existing.updatedAt = DateTime.now();
+          _clips.insert(0, existing);
+          _applyFilter();
+        });
+        _showNotification('Auto-captured (moved to top)', ToastType.info);
+        await _persistClips();
+        return;
+      }
       return;
     }
 
     String title = text.replaceAll('\n', ' ').trim();
-    if (title.length > 40) {
-      title = '${title.substring(0, 40)}...';
+    if (title.length > 120) {
+      title = '${title.substring(0, 120)}...';
     }
 
     final newClip = ClipItem(
@@ -380,6 +461,7 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
       createdAt: DateTime.now(),
       isDeleted: false,
       isAuto: true,
+      isImage: false,
     );
 
     setState(() {
@@ -398,12 +480,15 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
 
   void _moveToAllTab(ClipItem item) {
     setState(() {
+      _clips.remove(item);
       item.isAuto = false;
+      item.createdAt = DateTime.now();
       item.updatedAt = DateTime.now();
+      _clips.insert(0, item);
       _applyFilter();
     });
     _persistClips();
-    _showNotification('Moved clip to All tab');
+    _showNotification('Moved clip to Clips tab');
   }
 
   void _applyFilter() {
@@ -425,7 +510,18 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
             matchesTab = clip.isDeleted;
             break;
         }
-        return matchesTab && clip.matchesSearch(query);
+
+        if (!matchesTab) return false;
+
+        // Media filter: All, Text, or Image
+        if (_activeMediaFilter == MediaFilter.text && clip.isImage) {
+          return false;
+        }
+        if (_activeMediaFilter == MediaFilter.image && !clip.isImage) {
+          return false;
+        }
+
+        return clip.matchesSearch(query);
       }).toList();
     });
   }
@@ -450,46 +546,86 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
     _persistClips();
   }
 
-  void _showNotification(String message, [ToastType type = ToastType.success]) {
+  void _showNotification(
+    String message, [
+    ToastType type = ToastType.success,
+    int durationMs = 2200,
+    double? progress,
+  ]) {
     _toastTimer?.cancel();
     setState(() {
       _toastMessage = message;
       _toastType = type;
+      _toastProgress = progress;
     });
-    _toastTimer = Timer(const Duration(milliseconds: 2000), () {
-      if (mounted) {
-        setState(() {
-          _toastMessage = null;
-        });
-      }
+
+    if (durationMs > 0) {
+      _toastTimer = Timer(Duration(milliseconds: durationMs), () {
+        if (mounted) {
+          setState(() {
+            _toastMessage = null;
+            _toastProgress = null;
+          });
+        }
+      });
+    }
+  }
+
+  void _updateNotificationProgress(String message, double progress) {
+    if (!mounted) return;
+    setState(() {
+      _toastMessage = message;
+      _toastProgress = progress;
+      _toastType = ToastType.info;
     });
   }
 
   Future<void> _saveClipText(String text, [String? customTitle]) async {
     _lastMonitoredClipboard = text.trim();
+    if (_searchController.text.isNotEmpty) {
+      _searchController.clear();
+    }
+
     final existingIndex = _clips.indexWhere((c) => c.content == text);
     if (existingIndex >= 0) {
-      final existing = _clips[existingIndex];
-      if (existing.isDeleted) {
-        existing.isDeleted = false;
-        existing.deletedAt = null;
-        if (customTitle != null && customTitle.isNotEmpty) {
-          existing.title = customTitle;
-        }
-        setState(() {
-          _applyFilter();
-        });
-        await _persistClips();
-        _showNotification('Restored existing clip');
-      } else {
-        _showNotification('Clip already in library');
+      final existing = _clips.removeAt(existingIndex);
+      final wasDeleted = existing.isDeleted;
+      final wasAuto = existing.isAuto;
+
+      // Adding or pasting explicitly must always send to Clips tab (isAuto = false)
+      existing.isAuto = false;
+      existing.isDeleted = false;
+      existing.deletedAt = null;
+      existing.createdAt = DateTime.now();
+      existing.updatedAt = DateTime.now();
+      if (customTitle != null && customTitle.isNotEmpty) {
+        existing.title = customTitle;
+        existing.customTitle = customTitle;
       }
+
+      // Bring repeated/existing clip to the top of Clips
+      _clips.insert(0, existing);
+      _activeTab = ClipTab.all;
+
+      setState(() {
+        _applyFilter();
+      });
+
+      if (wasDeleted) {
+        _showNotification('Restored clip to Clips');
+      } else if (wasAuto) {
+        _showNotification('Moved to Clips (top)');
+      } else {
+        _showNotification('Clip moved to top');
+      }
+
+      await _persistClips();
       return;
     }
 
     String title = customTitle ?? text.replaceAll('\n', ' ').trim();
-    if (title.length > 40) {
-      title = '${title.substring(0, 40)}...';
+    if (title.length > 120) {
+      title = '${title.substring(0, 120)}...';
     }
 
     final newClip = ClipItem(
@@ -499,16 +635,18 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
       createdAt: DateTime.now(),
       isDeleted: false,
       isAuto: false,
+      customTitle: (customTitle != null && customTitle.isNotEmpty) ? customTitle : null,
     );
 
     setState(() {
       _clips.insert(0, newClip);
+      _activeTab = ClipTab.all;
       _applyFilter();
     });
 
-    await _persistClips();
     final activeCount = _clips.where((c) => !c.isDeleted && !c.isAuto).length;
     _showNotification('Saved clip #$activeCount');
+    await _persistClips();
   }
 
   Future<void> _pasteFromClipboard() async {
@@ -569,6 +707,84 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
     });
     _persistClips();
     _showNotification('Emptied $trashCount clips from Trash');
+  }
+
+  void _clearAutoClips() {
+    final autoCount = _clips.where((c) => !c.isDeleted && c.isAuto).length;
+    if (autoCount == 0) return;
+
+    setState(() {
+      for (final c in _clips) {
+        if (!c.isDeleted && c.isAuto) {
+          c.isDeleted = true;
+          c.deletedAt = DateTime.now();
+        }
+      }
+      _applyFilter();
+    });
+    _persistClips();
+    _showNotification('Cleared $autoCount auto clips to Trash');
+  }
+
+  Future<void> _sendClipToTelegram(ClipItem item) async {
+    final token = _settings.telegramBotToken.trim();
+    final channelId = _settings.telegramChannelId.trim();
+
+    if (token.isEmpty || channelId.isEmpty) {
+      _showNotification('Configure Telegram Bot Token & Channel ID in Settings', ToastType.warning, 4000);
+      return;
+    }
+
+    if (_sendingTelegramClipId != null) {
+      return;
+    }
+
+    setState(() {
+      _sendingTelegramClipId = item.id;
+    });
+
+    final isImg = item.isImage && item.imagePath != null;
+    final initialMsg = isImg ? 'Sending image to Telegram... 0%' : 'Sending clip to Telegram...';
+    _showNotification(initialMsg, ToastType.info, 0, isImg ? 0.0 : null);
+
+    try {
+      final result = await TelegramService.sendClip(
+        botToken: token,
+        chatId: channelId,
+        item: item,
+        onProgress: (sent, total, percent) {
+          if (mounted && _sendingTelegramClipId == item.id) {
+            final pctInt = (percent * 100).toInt().clamp(0, 100);
+            final msg = percent >= 1.0
+                ? 'Processing on Telegram...'
+                : 'Sending image to Telegram... $pctInt%';
+            _updateNotificationProgress(msg, percent);
+          }
+        },
+      );
+
+      if (result.success) {
+        _showNotification(
+          isImg ? 'Image sent to Telegram channel' : 'Clip sent to Telegram channel',
+          ToastType.success,
+          3500,
+        );
+      } else {
+        _showNotification(
+          result.error ?? 'Failed to send to Telegram',
+          ToastType.error,
+          5000,
+        );
+      }
+    } catch (e) {
+      _showNotification('Failed to send to Telegram: $e', ToastType.error, 5000);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _sendingTelegramClipId = null;
+        });
+      }
+    }
   }
 
   void _openAddDialog() {
@@ -638,6 +854,7 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
                     final index = _clips.indexWhere((c) => c.id == item.id);
                     if (index >= 0) {
                       _clips[index].title = updatedTitle;
+                      _clips[index].customTitle = updatedTitle.isNotEmpty ? updatedTitle : null;
                       _clips[index].content = updatedContent;
                       _clips[index].updatedAt = DateTime.now();
                       _applyFilter();
@@ -1062,11 +1279,12 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                               onTogglePin: _togglePin,
                               onToggleTheme: widget.onToggleTheme,
                               onCollapse: _collapseManual,
+                              onPaste: _pasteFromClipboard,
                               onAdd: _openAddDialog,
                               onMinimize: minimizeToTray,
                             ),
 
-                            // Search & Actions Bar (Tabs [All, Auto, Starred, Trash] and Paste / Empty button)
+                            // Search & Actions Bar (Tabs [Clips, Starred, Auto, Trash] and Clear All / Empty button)
                             SearchFilterBar(
                               controller: _searchController,
                               isDark: isDark,
@@ -1075,9 +1293,36 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                               starredCount: starredCount,
                               trashCount: trashCount,
                               activeTab: _activeTab,
+                              activeMediaFilter: _activeMediaFilter,
+                              textCount: _clips.where((c) {
+                                bool matchesTab = false;
+                                switch (_activeTab) {
+                                  case ClipTab.all: matchesTab = !c.isDeleted && !c.isAuto; break;
+                                  case ClipTab.auto: matchesTab = !c.isDeleted && c.isAuto; break;
+                                  case ClipTab.starred: matchesTab = !c.isDeleted && c.isStarred; break;
+                                  case ClipTab.trash: matchesTab = c.isDeleted; break;
+                                }
+                                return matchesTab && !c.isImage;
+                              }).length,
+                              imageCount: _clips.where((c) {
+                                bool matchesTab = false;
+                                switch (_activeTab) {
+                                  case ClipTab.all: matchesTab = !c.isDeleted && !c.isAuto; break;
+                                  case ClipTab.auto: matchesTab = !c.isDeleted && c.isAuto; break;
+                                  case ClipTab.starred: matchesTab = !c.isDeleted && c.isStarred; break;
+                                  case ClipTab.trash: matchesTab = c.isDeleted; break;
+                                }
+                                return matchesTab && c.isImage;
+                              }).length,
                               onTabChanged: (tab) {
                                 setState(() {
                                   _activeTab = tab;
+                                  _applyFilter();
+                                });
+                              },
+                              onMediaFilterChanged: (filter) {
+                                setState(() {
+                                  _activeMediaFilter = filter;
                                   _applyFilter();
                                 });
                               },
@@ -1085,6 +1330,7 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                               onClear: _clearSearch,
                               onPaste: _pasteFromClipboard,
                               onEmptyTrash: _emptyTrash,
+                              onClearAuto: _clearAutoClips,
                             ),
 
                             // Divider
@@ -1128,11 +1374,11 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                                               _activeTab == ClipTab.trash
                                                   ? 'Trash is empty.\nDeleted clips will appear here.'
                                                   : (_activeTab == ClipTab.auto
-                                                      ? 'No auto-captured clips yet.\nCopy any text anywhere on your PC to auto-save it here.'
+                                                      ? 'No auto-captured clips yet.\nCopy any text or image anywhere on your PC to auto-save it here.'
                                                       : (_activeTab == ClipTab.starred
                                                           ? 'No starred clips found.\nClick the star icon on any clip to pin it here.'
                                                           : (allCount == 0
-                                                              ? 'No manual clips saved yet.\nClick "Paste" or "+ Add" to store clips.'
+                                                              ? 'No clips saved yet.\nClick "Paste" or "+ Add" to store clips.'
                                                               : 'No matching clips found.'))),
                                               textAlign: TextAlign.center,
                                               style: TextStyle(
@@ -1160,10 +1406,12 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                                           isDark: isDark,
                                           isTrash: isTrash,
                                           isAuto: item.isAuto,
+                                          displayLines: _settings.displayLines,
                                           clickRowToCopy: _settings.clickRowToCopy,
                                           clickRowToFill: _settings.clickRowToFill,
                                           showCopyButton: _settings.showCopyButton,
                                           dragToPaste: _settings.dragToPaste,
+                                          isSendingTelegram: _sendingTelegramClipId == item.id,
                                           onCopy: () => _onCopyClip(item, index + 1),
                                           onNotify: (msg) {
                                             _lastMonitoredClipboard = item.content.trim();
@@ -1175,6 +1423,7 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                                           onMoveToAll: isTrash ? null : () => _moveToAllTab(item),
                                           onRestore: isTrash ? () => _restoreClip(item.id) : null,
                                           onDeleteForever: isTrash ? () => _deletePermanently(item.id) : null,
+                                          onSendTelegram: isTrash ? null : () => _sendClipToTelegram(item),
                                         );
                                       },
                                     ),
@@ -1343,20 +1592,24 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                   left: 20,
                   width: _panelWidth - 40,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     decoration: BoxDecoration(
-                      color: _toastType == ToastType.warning
-                          ? (isDark ? const Color(0xFF291400) : const Color(0xFF451A03)).withAlpha(240)
-                          : (_toastType == ToastType.info
-                              ? (isDark ? const Color(0xFF000000) : const Color(0xFF0F172A)).withAlpha(240)
-                              : (isDark ? const Color(0xFF052E16) : const Color(0xFF064E3B)).withAlpha(240)),
+                      color: _toastType == ToastType.error
+                          ? (isDark ? const Color(0xFF450A0A) : const Color(0xFF7F1D1D)).withAlpha(240)
+                          : (_toastType == ToastType.warning
+                              ? (isDark ? const Color(0xFF291400) : const Color(0xFF451A03)).withAlpha(240)
+                              : (_toastType == ToastType.info
+                                  ? (isDark ? const Color(0xFF0B192C) : const Color(0xFF0F172A)).withAlpha(245)
+                                  : (isDark ? const Color(0xFF052E16) : const Color(0xFF064E3B)).withAlpha(240))),
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(
-                        color: _toastType == ToastType.warning
-                            ? AppColors.accentAmber
-                            : (_toastType == ToastType.info
-                                ? AppColors.accentSilver
-                                : AppColors.accentEmerald),
+                        color: _toastType == ToastType.error
+                            ? const Color(0xFFEF4444)
+                            : (_toastType == ToastType.warning
+                                ? AppColors.accentAmber
+                                : (_toastType == ToastType.info
+                                    ? const Color(0xFF2AABEE)
+                                    : AppColors.accentEmerald)),
                         width: 1,
                       ),
                       boxShadow: [
@@ -1367,36 +1620,108 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                         ),
                       ],
                     ),
-                    child: Row(
+                    child: Column(
                       mainAxisSize: MainAxisSize.min,
-                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Icon(
-                          _toastType == ToastType.warning
-                              ? Icons.warning_amber_rounded
-                              : (_toastType == ToastType.info
-                                  ? Icons.info_outline_rounded
-                                  : Icons.check_circle_rounded),
-                          color: _toastType == ToastType.warning
-                              ? AppColors.accentAmber
-                              : (_toastType == ToastType.info
-                                  ? AppColors.accentSilver
-                                  : AppColors.accentEmerald),
-                          size: 14,
+                        Row(
+                          children: [
+                            if (_toastProgress != null && _toastProgress! < 1.0)
+                              const SizedBox(
+                                width: 13,
+                                height: 13,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF2AABEE)),
+                                ),
+                              )
+                            else
+                              Icon(
+                                _toastType == ToastType.error
+                                    ? Icons.error_outline_rounded
+                                    : (_toastType == ToastType.warning
+                                        ? Icons.warning_amber_rounded
+                                        : (_toastType == ToastType.info
+                                            ? Icons.info_outline_rounded
+                                            : Icons.check_circle_rounded)),
+                                color: _toastType == ToastType.error
+                                    ? const Color(0xFFEF4444)
+                                    : (_toastType == ToastType.warning
+                                        ? AppColors.accentAmber
+                                        : (_toastType == ToastType.info
+                                            ? const Color(0xFF38BDF8)
+                                            : AppColors.accentEmerald)),
+                                size: 14,
+                              ),
+                            const SizedBox(width: 7),
+                            Expanded(
+                              child: Text(
+                                _toastMessage!,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                            if (_toastProgress != null) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF2AABEE).withAlpha(50),
+                                  borderRadius: BorderRadius.circular(4),
+                                  border: Border.all(
+                                    color: const Color(0xFF2AABEE).withAlpha(140),
+                                    width: 0.8,
+                                  ),
+                                ),
+                                child: Text(
+                                  '${(_toastProgress! * 100).toInt()}%',
+                                  style: const TextStyle(
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF38BDF8),
+                                    fontFeatures: [FontFeature.tabularFigures()],
+                                  ),
+                                ),
+                              ),
+                            ],
+                            const SizedBox(width: 4),
+                            InkWell(
+                              onTap: () {
+                                _toastTimer?.cancel();
+                                setState(() {
+                                  _toastMessage = null;
+                                  _toastProgress = null;
+                                });
+                              },
+                              borderRadius: BorderRadius.circular(4),
+                              child: const Padding(
+                                padding: EdgeInsets.all(2),
+                                child: Icon(
+                                  Icons.close_rounded,
+                                  size: 13,
+                                  color: Colors.white54,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 6),
-                        Flexible(
-                          child: Text(
-                            _toastMessage!,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
+                        if (_toastProgress != null) ...[
+                          const SizedBox(height: 6),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(2),
+                            child: LinearProgressIndicator(
+                              value: _toastProgress!.clamp(0.0, 1.0),
+                              minHeight: 3.5,
+                              backgroundColor: Colors.white12,
+                              valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF2AABEE)),
                             ),
                           ),
-                        ),
+                        ],
                       ],
                     ),
                   ),

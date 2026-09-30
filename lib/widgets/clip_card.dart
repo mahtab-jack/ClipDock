@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/clip_item.dart';
 import '../theme/app_theme.dart';
+import 'telegram_icon.dart';
 
 class ClipCard extends StatefulWidget {
   final int serialNo;
@@ -10,6 +12,7 @@ class ClipCard extends StatefulWidget {
   final bool isDark;
   final bool isTrash;
   final bool isAuto;
+  final int displayLines;
   final bool clickRowToCopy;
   final bool clickRowToFill;
   final bool showCopyButton;
@@ -22,6 +25,8 @@ class ClipCard extends StatefulWidget {
   final VoidCallback? onMoveToAll;
   final VoidCallback? onRestore;
   final VoidCallback? onDeleteForever;
+  final VoidCallback? onSendTelegram;
+  final bool isSendingTelegram;
 
   const ClipCard({
     super.key,
@@ -30,6 +35,7 @@ class ClipCard extends StatefulWidget {
     required this.isDark,
     this.isTrash = false,
     this.isAuto = false,
+    this.displayLines = 2,
     this.clickRowToCopy = false,
     this.clickRowToFill = true,
     this.showCopyButton = true,
@@ -42,6 +48,8 @@ class ClipCard extends StatefulWidget {
     this.onMoveToAll,
     this.onRestore,
     this.onDeleteForever,
+    this.onSendTelegram,
+    this.isSendingTelegram = false,
   });
 
   @override
@@ -61,7 +69,16 @@ class _ClipCardState extends State<ClipCard> {
   }
 
   void _copyToClipboard() {
-    Clipboard.setData(ClipboardData(text: widget.item.content));
+    if (widget.item.isImage && widget.item.imagePath != null) {
+      try {
+        _dragDropChannel.invokeMethod('copyImageToClipboard', {
+          'filePath': widget.item.imagePath,
+        });
+      } catch (_) {}
+    } else {
+      Clipboard.setData(ClipboardData(text: widget.item.content));
+    }
+
     _copiedResetTimer?.cancel();
     setState(() {
       _isCopied = true;
@@ -70,7 +87,7 @@ class _ClipCardState extends State<ClipCard> {
     if (widget.onCopy != null) {
       widget.onCopy!();
     } else {
-      widget.onNotify?.call('Copied clip #${widget.serialNo}');
+      widget.onNotify?.call(widget.item.isImage ? 'Copied image #${widget.serialNo}' : 'Copied clip #${widget.serialNo}');
     }
 
     _copiedResetTimer = Timer(const Duration(milliseconds: 1400), () {
@@ -83,19 +100,27 @@ class _ClipCardState extends State<ClipCard> {
   }
 
   void _fillIntoActiveWindow() {
-    Clipboard.setData(ClipboardData(text: widget.item.content));
+    if (widget.item.isImage && widget.item.imagePath != null) {
+      try {
+        _dragDropChannel.invokeMethod('fillImageIntoActiveWindow', {
+          'filePath': widget.item.imagePath,
+        });
+      } catch (_) {}
+      widget.onNotify?.call('Filled image #${widget.serialNo} into active window');
+    } else {
+      Clipboard.setData(ClipboardData(text: widget.item.content));
+      try {
+        _dragDropChannel.invokeMethod('fillTextIntoActiveWindow', {
+          'text': widget.item.content,
+        });
+      } catch (_) {}
+      widget.onNotify?.call('Filled clip #${widget.serialNo} into active window');
+    }
+
     _copiedResetTimer?.cancel();
     setState(() {
       _isCopied = true;
     });
-
-    try {
-      _dragDropChannel.invokeMethod('fillTextIntoActiveWindow', {
-        'text': widget.item.content,
-      });
-    } catch (_) {}
-
-    widget.onNotify?.call('Filled clip #${widget.serialNo} into active window');
 
     _copiedResetTimer = Timer(const Duration(milliseconds: 1400), () {
       if (mounted) {
@@ -139,210 +164,342 @@ class _ClipCardState extends State<ClipCard> {
     final textColor = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
     final subtextColor = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
 
-    final cardContent = MouseRegion(
-      onEnter: (_) {
-        setState(() => _isHovered = true);
-      },
-      onExit: (_) {
-        setState(() => _isHovered = false);
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 3.5),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        decoration: BoxDecoration(
-          color: cardBg,
-          borderRadius: BorderRadius.circular(9),
-          border: Border.all(
-            color: _isCopied ? AppColors.accentEmerald : borderColor,
-            width: _isCopied || _isHovered ? 1.3 : 1,
+    final cardContent = GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onSecondaryTap: widget.isTrash ? null : widget.onEdit,
+      child: MouseRegion(
+        onEnter: (_) {
+          setState(() => _isHovered = true);
+        },
+        onExit: (_) {
+          setState(() => _isHovered = false);
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 3.5),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            color: cardBg,
+            borderRadius: BorderRadius.circular(9),
+            border: Border.all(
+              color: _isCopied ? AppColors.accentEmerald : borderColor,
+              width: _isCopied || _isHovered ? 1.3 : 1,
+            ),
+            boxShadow: _isHovered
+                ? [
+                    BoxShadow(
+                      color: isDark
+                          ? Colors.black.withAlpha(50)
+                          : Colors.black.withAlpha(15),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : null,
           ),
-          boxShadow: _isHovered
-              ? [
-                  BoxShadow(
-                    color: isDark
-                        ? Colors.black.withAlpha(50)
-                        : Colors.black.withAlpha(15),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
+          child: Row(
+            children: [
+              // Serial Number (Clean Silvery Pill)
+              Container(
+                constraints: const BoxConstraints(minWidth: 26),
+                height: 22,
+                padding: const EdgeInsets.symmetric(horizontal: 5),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? AppColors.darkGlassSurface
+                      : AppColors.lightGlassSurface,
+                  borderRadius: BorderRadius.circular(5),
+                  border: Border.all(
+                    color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle,
+                    width: 1,
                   ),
-                ]
-              : null,
-        ),
-        child: Row(
-          children: [
-            // Serial Number (Clean Silvery Pill)
-            Container(
-              constraints: const BoxConstraints(minWidth: 26),
-              height: 22,
-              padding: const EdgeInsets.symmetric(horizontal: 5),
-              decoration: BoxDecoration(
-                color: isDark
-                    ? AppColors.darkGlassSurface
-                    : AppColors.lightGlassSurface,
-                borderRadius: BorderRadius.circular(5),
-                border: Border.all(
-                  color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle,
-                  width: 1,
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  '#${widget.serialNo}',
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.2,
+                    color: isDark ? AppColors.accentSilver : AppColors.lightTextSecondary,
+                  ),
                 ),
               ),
-              alignment: Alignment.center,
-              child: Text(
-                '#${widget.serialNo}',
-                style: TextStyle(
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.2,
-                  color: isDark ? AppColors.accentSilver : AppColors.lightTextSecondary,
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
+              const SizedBox(width: 8),
 
-            // Content & Time + Character Count (Clickable to Fill/Copy if enabled)
-            Expanded(
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: (widget.clickRowToFill || widget.clickRowToCopy) ? _handleRowTap : null,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
+              // Content & Time + Character Count (Clickable to Fill/Copy if enabled)
+              Expanded(
+                child: Stack(
+                  alignment: Alignment.centerLeft,
                   children: [
-                    Text(
-                      widget.item.title.isNotEmpty ? widget.item.title : widget.item.content,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w600,
-                        color: textColor,
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: (widget.clickRowToFill || widget.clickRowToCopy) ? _handleRowTap : null,
+                      onSecondaryTap: widget.isTrash ? null : widget.onEdit,
+                      child: Padding(
+                      padding: const EdgeInsets.only(right: 4),
+                      child: widget.item.isImage
+                          ? Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                // Image Thumbnail
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(6),
+                                  child: Container(
+                                    width: 44,
+                                    height: 44,
+                                    decoration: BoxDecoration(
+                                      color: isDark ? Colors.black26 : Colors.black12,
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(
+                                        color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle,
+                                        width: 1,
+                                      ),
+                                    ),
+                                    child: widget.item.imagePath != null && File(widget.item.imagePath!).existsSync()
+                                        ? Image.file(
+                                            File(widget.item.imagePath!),
+                                            fit: BoxFit.cover,
+                                            errorBuilder: (context, error, stackTrace) => Icon(
+                                              Icons.image_not_supported_rounded,
+                                              size: 20,
+                                              color: subtextColor,
+                                            ),
+                                          )
+                                        : Icon(
+                                            Icons.image_rounded,
+                                            size: 20,
+                                            color: subtextColor,
+                                          ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+
+                                // Title and Info
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        (widget.item.customTitle != null && widget.item.customTitle!.trim().isNotEmpty)
+                                            ? widget.item.customTitle!
+                                            : (widget.item.title.isNotEmpty ? widget.item.title : 'Captured Image'),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          height: 1.3,
+                                          color: textColor,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 3),
+                                      Text(
+                                        '${widget.item.timeAgo} • Image',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          color: subtextColor,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            )
+                          : Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  (widget.item.customTitle != null && widget.item.customTitle!.trim().isNotEmpty)
+                                      ? widget.item.customTitle!
+                                      : (widget.item.content.isNotEmpty ? widget.item.content : widget.item.title),
+                                  maxLines: widget.displayLines,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    height: 1.3,
+                                    color: textColor,
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  '${widget.item.timeAgo} • ${widget.item.content.length} chars',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: subtextColor,
+                                  ),
+                                ),
+                              ],
+                            ),
+                    ),
+                  ),
+
+                  // Action buttons overlay: shown when mouse enters this specific clip row
+                  if (_isHovered)
+                    Positioned(
+                      top: 0,
+                      right: 0,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: isDark
+                              ? const Color(0xFF0F172A).withAlpha(240)
+                              : const Color(0xFFFFFFFF).withAlpha(245),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(
+                            color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle,
+                            width: 1,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withAlpha(isDark ? 90 : 30),
+                              blurRadius: 6,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (widget.isTrash) ...[
+                              if (widget.onRestore != null)
+                                Tooltip(
+                                  message: 'Restore clip',
+                                  child: IconButton(
+                                    onPressed: widget.onRestore,
+                                    iconSize: 15,
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
+                                    splashRadius: 11,
+                                    icon: const Icon(
+                                      Icons.restore_rounded,
+                                      color: AppColors.accentEmerald,
+                                    ),
+                                  ),
+                                ),
+                              if (widget.onDeleteForever != null)
+                                Tooltip(
+                                  message: 'Delete permanently',
+                                  child: IconButton(
+                                    onPressed: widget.onDeleteForever,
+                                    iconSize: 15,
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
+                                    splashRadius: 11,
+                                    icon: const Icon(
+                                      Icons.delete_forever_rounded,
+                                      color: Color(0xFFFB7185),
+                                    ),
+                                  ),
+                                ),
+                            ] else ...[
+                              if (widget.isAuto) ...[
+                                if (widget.onMoveToAll != null)
+                                  Tooltip(
+                                    message: 'Move to Clips tab',
+                                    child: IconButton(
+                                      onPressed: widget.onMoveToAll,
+                                      iconSize: 14,
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
+                                      splashRadius: 11,
+                                      icon: Icon(
+                                        Icons.content_cut_rounded,
+                                        color: isDark ? AppColors.accentSilver : AppColors.lightHandle,
+                                      ),
+                                    ),
+                                  ),
+                              ] else ...[
+                                Tooltip(
+                                  message: widget.item.isStarred ? 'Unstar clip' : 'Star clip',
+                                  child: IconButton(
+                                    onPressed: widget.onToggleStar,
+                                    iconSize: 15,
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
+                                    splashRadius: 11,
+                                    icon: Icon(
+                                      widget.item.isStarred ? Icons.star_rounded : Icons.star_outline_rounded,
+                                      color: widget.item.isStarred ? AppColors.accentAmber : subtextColor,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                              if (widget.onEdit != null)
+                                Tooltip(
+                                  message: 'Edit clip',
+                                  child: IconButton(
+                                    onPressed: widget.onEdit,
+                                    iconSize: 13,
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
+                                    splashRadius: 11,
+                                    icon: Icon(
+                                      Icons.edit_outlined,
+                                      color: subtextColor,
+                                    ),
+                                  ),
+                                ),
+                              if (widget.onSendTelegram != null)
+                                Tooltip(
+                                  message: widget.isSendingTelegram
+                                      ? 'Sending to Telegram...'
+                                      : 'Send to Telegram channel',
+                                  child: IconButton(
+                                    onPressed: widget.isSendingTelegram ? null : widget.onSendTelegram,
+                                    iconSize: 13,
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
+                                    splashRadius: 11,
+                                    icon: widget.isSendingTelegram
+                                        ? const SizedBox(
+                                            width: 12,
+                                            height: 12,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 1.5,
+                                              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF2AABEE)),
+                                            ),
+                                          )
+                                        : const TelegramIcon(
+                                            size: 13,
+                                            color: Color(0xFF2AABEE),
+                                          ),
+                                  ),
+                                ),
+                              if (widget.onDelete != null)
+                                Tooltip(
+                                  message: 'Move to trash',
+                                  child: IconButton(
+                                    onPressed: widget.onDelete,
+                                    iconSize: 13,
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
+                                    splashRadius: 11,
+                                    icon: Icon(
+                                      Icons.close_rounded,
+                                      color: subtextColor,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ],
+                        ),
                       ),
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '${widget.item.timeAgo} • ${widget.item.content.length} chars',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: subtextColor,
-                      ),
-                    ),
-                  ],
-                ),
+                ],
               ),
             ),
 
-            const SizedBox(width: 4),
-
-            if (widget.isTrash) ...[
-              // Trash Mode: Restore Button
-              if (widget.onRestore != null)
-                Tooltip(
-                  message: 'Restore clip',
-                  child: IconButton(
-                    onPressed: widget.onRestore,
-                    iconSize: 15,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
-                    splashRadius: 11,
-                    icon: const Icon(
-                      Icons.restore_rounded,
-                      color: AppColors.accentEmerald,
-                    ),
-                  ),
-                ),
-
-              // Trash Mode: Delete Permanently Button
-              if (widget.onDeleteForever != null)
-                Tooltip(
-                  message: 'Delete permanently',
-                  child: IconButton(
-                    onPressed: widget.onDeleteForever,
-                    iconSize: 15,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
-                    splashRadius: 11,
-                    icon: const Icon(
-                      Icons.delete_forever_rounded,
-                      color: Color(0xFFFB7185),
-                    ),
-                  ),
-                ),
-            ] else ...[
-              // Auto Mode: Scissor Icon to Move to All tab
-              if (widget.isAuto) ...[
-                if (widget.onMoveToAll != null)
-                  Tooltip(
-                    message: 'Move to All tab',
-                    child: IconButton(
-                      onPressed: widget.onMoveToAll,
-                      iconSize: 14,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
-                      splashRadius: 11,
-                      icon: Icon(
-                        Icons.content_cut_rounded,
-                        color: isDark ? AppColors.accentSilver : AppColors.lightHandle,
-                      ),
-                    ),
-                  ),
-              ] else ...[
-                // Normal Active Mode: Star / Favorite Button
-                Tooltip(
-                  message: widget.item.isStarred ? 'Unstar clip' : 'Star clip',
-                  child: IconButton(
-                    onPressed: widget.onToggleStar,
-                    iconSize: 15,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
-                    splashRadius: 11,
-                    icon: Icon(
-                      widget.item.isStarred ? Icons.star_rounded : Icons.star_outline_rounded,
-                      color: widget.item.isStarred ? AppColors.accentAmber : subtextColor,
-                    ),
-                  ),
-                ),
-              ],
-
-              // Active Mode: Edit Button
-              if (widget.onEdit != null)
-                Tooltip(
-                  message: 'Edit clip',
-                  child: IconButton(
-                    onPressed: widget.onEdit,
-                    iconSize: 13,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
-                    splashRadius: 11,
-                    icon: Icon(
-                      Icons.edit_outlined,
-                      color: subtextColor,
-                    ),
-                  ),
-                ),
-
-              // Active Mode: Delete (Move to Trash) Button
-              if (widget.onDelete != null)
-                Tooltip(
-                  message: 'Move to trash',
-                  child: IconButton(
-                    onPressed: widget.onDelete,
-                    iconSize: 13,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
-                    splashRadius: 11,
-                    icon: Icon(
-                      Icons.close_rounded,
-                      color: subtextColor,
-                    ),
-                  ),
-                ),
-            ],
-
-            // Copy Button with Label (shown if showCopyButton is true OR if clickRowToCopy is false)
+            // Copy Button with Icon on Top and Label "Copy" Below
             if (widget.showCopyButton || !widget.clickRowToCopy) ...[
-              const SizedBox(width: 3),
+              const SizedBox(width: 8),
               Tooltip(
                 message: _isCopied ? 'Copied to clipboard' : 'Copy clip content',
                 child: Material(
@@ -352,7 +509,7 @@ class _ClipCardState extends State<ClipCard> {
                     borderRadius: BorderRadius.circular(6),
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 160),
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4.5),
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
                       decoration: BoxDecoration(
                         color: _isCopied
                             ? AppColors.accentEmerald.withAlpha(45)
@@ -367,21 +524,22 @@ class _ClipCardState extends State<ClipCard> {
                           width: 1,
                         ),
                       ),
-                      child: Row(
+                      child: Column(
                         mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(
                             _isCopied ? Icons.check_rounded : Icons.copy_rounded,
-                            size: 12,
+                            size: 13,
                             color: _isCopied
                                 ? AppColors.accentEmerald
                                 : (isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary),
                           ),
-                          const SizedBox(width: 4),
+                          const SizedBox(height: 2),
                           Text(
                             _isCopied ? 'Copied' : 'Copy',
                             style: TextStyle(
-                              fontSize: 11,
+                              fontSize: 9.5,
                               fontWeight: FontWeight.w600,
                               color: _isCopied
                                   ? AppColors.accentEmerald
@@ -398,7 +556,8 @@ class _ClipCardState extends State<ClipCard> {
           ],
         ),
       ),
-    );
+    ),
+  );
 
     if (!widget.dragToPaste || widget.isTrash) {
       return cardContent;

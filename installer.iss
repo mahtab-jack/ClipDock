@@ -1,8 +1,8 @@
 ; Inno Setup Script for Clip Dock (cNote)
-; Output file will be created in build\installer\ClipDock-Setup-v1.1.0.exe
+; Output file will be created in build\installer\ClipDock-Setup-v1.2.0.exe
 
 #define MyAppName "Clip Dock"
-#define MyAppVersion "1.1.0"
+#define MyAppVersion "1.2.0"
 #define MyAppPublisher "Mahtab Jack"
 #define MyAppURL "https://github.com/mahtab-jack"
 #define MyAppExeName "cnote.exe"
@@ -18,7 +18,7 @@ AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf}\ClipDock
 DisableProgramGroupPage=yes
 OutputDir=build\installer
-OutputBaseFilename=ClipDock-Setup-v1.1.0
+OutputBaseFilename=ClipDock-Setup-v1.2.0
 SetupIconFile=windows\runner\resources\app_icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma

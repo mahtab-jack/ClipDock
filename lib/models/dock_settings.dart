@@ -24,6 +24,10 @@ class DockSettings {
   bool autoBackup; // default: true (auto-save backup to Documents on every change)
   bool hasCompletedInitialSetup; // default: false (first-launch onboarding flag)
   bool autoRibbonColor; // default: true (dynamically adjust ribbon color to match active theme)
+  int displayLines; // 1 to 5 (default: 2)
+  int maxAutoChars; // default: 15000 (15k chars for only auto clips)
+  String telegramBotToken; // Telegram bot token
+  String telegramChannelId; // Telegram channel ID (e.g. @channel or -100...)
 
   DockSettings({
     this.opacity = 1.0,
@@ -49,6 +53,10 @@ class DockSettings {
     this.autoBackup = true,
     this.hasCompletedInitialSetup = false,
     this.autoRibbonColor = true,
+    this.displayLines = 2,
+    this.maxAutoChars = 15000,
+    this.telegramBotToken = '',
+    this.telegramChannelId = '',
   });
 
   DockSettings copyWith({
@@ -75,6 +83,10 @@ class DockSettings {
     bool? autoBackup,
     bool? hasCompletedInitialSetup,
     bool? autoRibbonColor,
+    int? displayLines,
+    int? maxAutoChars,
+    String? telegramBotToken,
+    String? telegramChannelId,
   }) {
     return DockSettings(
       opacity: opacity ?? this.opacity,
@@ -100,6 +112,10 @@ class DockSettings {
       autoBackup: autoBackup ?? this.autoBackup,
       hasCompletedInitialSetup: hasCompletedInitialSetup ?? this.hasCompletedInitialSetup,
       autoRibbonColor: autoRibbonColor ?? this.autoRibbonColor,
+      displayLines: (displayLines ?? this.displayLines).clamp(1, 5),
+      maxAutoChars: maxAutoChars ?? this.maxAutoChars,
+      telegramBotToken: telegramBotToken ?? this.telegramBotToken,
+      telegramChannelId: telegramChannelId ?? this.telegramChannelId,
     );
   }
 
@@ -128,6 +144,10 @@ class DockSettings {
       'autoBackup': autoBackup,
       'hasCompletedInitialSetup': hasCompletedInitialSetup,
       'autoRibbonColor': autoRibbonColor,
+      'displayLines': displayLines,
+      'maxAutoChars': maxAutoChars,
+      'telegramBotToken': telegramBotToken,
+      'telegramChannelId': telegramChannelId,
     };
   }
 
@@ -163,6 +183,10 @@ class DockSettings {
       autoBackup: json['autoBackup'] as bool? ?? true,
       hasCompletedInitialSetup: json['hasCompletedInitialSetup'] as bool? ?? true,
       autoRibbonColor: autoRibbon,
+      displayLines: (json['displayLines'] as num?)?.toInt().clamp(1, 5) ?? 2,
+      maxAutoChars: (json['maxAutoChars'] as num?)?.toInt() ?? 15000,
+      telegramBotToken: json['telegramBotToken'] as String? ?? '',
+      telegramChannelId: json['telegramChannelId'] as String? ?? '',
     );
   }
 }
