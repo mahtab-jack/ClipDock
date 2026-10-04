@@ -810,6 +810,126 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                                   ),
                                 ),
                               ],
+                              const SizedBox(height: 8),
+
+                              // Auto clips retention
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    'Auto clips retention',
+                                    style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: textColor),
+                                  ),
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      {'label': '1d', 'days': 1},
+                                      {'label': '3d', 'days': 3},
+                                      {'label': '7d', 'days': 7},
+                                      {'label': '14d', 'days': 14},
+                                      {'label': '30d', 'days': 30},
+                                      {'label': 'Never', 'days': 0},
+                                    ].map((opt) {
+                                      final isSelected = _currentSettings.autoClipsRetentionDays == opt['days'];
+                                      return Padding(
+                                        padding: const EdgeInsets.only(left: 3),
+                                        child: InkWell(
+                                          onTap: () {
+                                            _updateSettings(_currentSettings.copyWith(autoClipsRetentionDays: opt['days'] as int));
+                                          },
+                                          borderRadius: BorderRadius.circular(4),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2.5),
+                                            alignment: Alignment.center,
+                                            decoration: BoxDecoration(
+                                              color: isSelected
+                                                  ? (isDark ? AppColors.accentCyan.withAlpha(45) : const Color(0xFF0284C7).withAlpha(35))
+                                                  : Colors.transparent,
+                                              borderRadius: BorderRadius.circular(4),
+                                              border: Border.all(
+                                                color: isSelected
+                                                    ? (isDark ? AppColors.accentCyan : const Color(0xFF0284C7))
+                                                    : (isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle),
+                                                width: 0.8,
+                                              ),
+                                            ),
+                                            child: Text(
+                                              opt['label'] as String,
+                                              style: TextStyle(
+                                                fontSize: 9.5,
+                                                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                                                color: isSelected
+                                                    ? (isDark ? AppColors.accentCyan : const Color(0xFF0284C7))
+                                                    : textColor,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      );
+                                    }).toList(),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+
+                              // Trash retention
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    'Trash retention',
+                                    style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: textColor),
+                                  ),
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      {'label': '1d', 'days': 1},
+                                      {'label': '3d', 'days': 3},
+                                      {'label': '7d', 'days': 7},
+                                      {'label': '14d', 'days': 14},
+                                      {'label': '30d', 'days': 30},
+                                      {'label': 'Never', 'days': 0},
+                                    ].map((opt) {
+                                      final isSelected = _currentSettings.trashRetentionDays == opt['days'];
+                                      return Padding(
+                                        padding: const EdgeInsets.only(left: 3),
+                                        child: InkWell(
+                                          onTap: () {
+                                            _updateSettings(_currentSettings.copyWith(trashRetentionDays: opt['days'] as int));
+                                          },
+                                          borderRadius: BorderRadius.circular(4),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2.5),
+                                            alignment: Alignment.center,
+                                            decoration: BoxDecoration(
+                                              color: isSelected
+                                                  ? (isDark ? AppColors.accentCyan.withAlpha(45) : const Color(0xFF0284C7).withAlpha(35))
+                                                  : Colors.transparent,
+                                              borderRadius: BorderRadius.circular(4),
+                                              border: Border.all(
+                                                color: isSelected
+                                                    ? (isDark ? AppColors.accentCyan : const Color(0xFF0284C7))
+                                                    : (isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle),
+                                                width: 0.8,
+                                              ),
+                                            ),
+                                            child: Text(
+                                              opt['label'] as String,
+                                              style: TextStyle(
+                                                fontSize: 9.5,
+                                                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                                                color: isSelected
+                                                    ? (isDark ? AppColors.accentCyan : const Color(0xFF0284C7))
+                                                    : textColor,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      );
+                                    }).toList(),
+                                  ),
+                                ],
+                              ),
                               const SizedBox(height: 6),
 
                               // Clip row lines option (1 to 6)

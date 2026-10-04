@@ -192,8 +192,14 @@ class _ClipDockAppState extends State<ClipDockApp> with TrayListener, WindowList
   }
 
   @override
-  void onWindowMinimize() {
-    _minimizeWindow();
+  void onWindowMinimize() async {
+    // When Win+D (Show Desktop) or Win+M is pressed, Windows attempts to minimize windows.
+    // As a persistent screen-edge dock, keep Clip Dock visible at the edge instead of disappearing into tray.
+    try {
+      await windowManager.restore();
+      await windowManager.show();
+      await windowManager.setAlwaysOnTop(true);
+    } catch (_) {}
   }
 
   @override

@@ -12,6 +12,7 @@ class ClipItem {
   String? imagePath;
   String? customTitle;
   String? imageBase64;
+  String? labelColor; // Hex string e.g. '#EF4444' or null
 
   ClipItem({
     required this.id,
@@ -27,6 +28,7 @@ class ClipItem {
     this.imagePath,
     this.customTitle,
     this.imageBase64,
+    this.labelColor,
   });
 
   bool matchesSearch(String query) {
@@ -82,6 +84,7 @@ class ClipItem {
       'imagePath': imagePath,
       'customTitle': customTitle,
       if (imageBase64 != null) 'imageBase64': imageBase64,
+      if (labelColor != null) 'labelColor': labelColor,
     };
   }
 
@@ -106,6 +109,7 @@ class ClipItem {
       imagePath: json['imagePath'] as String?,
       customTitle: json['customTitle'] as String?,
       imageBase64: json['imageBase64'] as String?,
+      labelColor: json['labelColor'] as String?,
     );
   }
 }

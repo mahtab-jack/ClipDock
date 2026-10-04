@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "cnote" "\0"
+            VALUE "CompanyName", "Mahtab Jack" "\0"
+            VALUE "FileDescription", "Clip Dock" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "cnote" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.example. All rights reserved." "\0"
+            VALUE "InternalName", "ClipDock" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 Mahtab Jack. All rights reserved." "\0"
             VALUE "OriginalFilename", "cnote.exe" "\0"
-            VALUE "ProductName", "cnote" "\0"
+            VALUE "ProductName", "Clip Dock" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

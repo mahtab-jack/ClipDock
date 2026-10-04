@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -72,7 +72,7 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
   bool _isAnimating = false;
 
   double get _visibleX => (Platform.isWindows ? -8.0 : 0.0) + _settings.edgeOffsetVisible;
-  double get _hiddenX => -_panelWidth + (Platform.isWindows ? -8.0 : 0.0) + _settings.edgeOffsetHidden;
+  double get _hiddenX => -_panelWidth + _settings.edgeOffsetHidden;
   double get _ribbonWidth => _settings.ribbonWidth;
   double get _totalWidth => _panelWidth + _ribbonWidth;
 
@@ -111,6 +111,10 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
     final isFreshInstall = await DatabaseService.isFirstEverInstall();
     final loadedSettings = await DatabaseService.loadSettings();
     final loadedClips = await DatabaseService.loadAllClips();
+    final bool retentionChanged = DatabaseService.applyRetentionPolicy(loadedSettings, loadedClips);
+    if (retentionChanged) {
+      DatabaseService.saveAllClips(loadedClips);
+    }
     if (mounted) {
       setState(() {
         _settings = loadedSettings;
@@ -159,7 +163,7 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
         // ABGR format: 0xAABBGGRR
         final int tintColor = isDark
             ? (tintAlpha << 24) | 0x00000000  // black tint
-            : (tintAlpha << 24) | 0x00FAFAF8; // light tint (F8FAFA in BGR)
+            : (tintAlpha << 24) | 0x00FFFFFF; // pure white tint
         await channel.invokeMethod('setWindowBlur', {
           'enable': enableBlur,
           'tintColor': tintColor,
@@ -227,7 +231,12 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
 
   Future<void> _expandDock() async {
     _autoHideTimer?.cancel();
-    if (_isExpanded && !_isAnimating) return;
+    if (_isExpanded && !_isAnimating) {
+      try {
+        final pos = await windowManager.getPosition();
+        if ((pos.dx - _visibleX).abs() < 5) return;
+      } catch (_) {}
+    }
 
     setState(() {
       _isExpanded = true;
@@ -312,6 +321,7 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
   void _onMouseEnterEdge() {
     _autoHideTimer?.cancel();
     try {
+      windowManager.setAlwaysOnTop(true);
       const MethodChannel('cnote/drag_drop').invokeMethod('captureActiveWindow');
     } catch (_) {}
     _expandDock();
@@ -563,6 +573,13 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
         _clips[index].isStarred = !_clips[index].isStarred;
         _applyFilter();
       }
+    });
+    _persistClips();
+  }
+
+  void _updateClipColor(ClipItem item, String? colorHex) {
+    setState(() {
+      item.labelColor = colorHex;
     });
     _persistClips();
   }
@@ -1239,7 +1256,7 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
 
     final bgBase = isDark
         ? const Color(0xFF000000)
-        : const Color(0xFFF8FAFC);
+        : const Color(0xFFFFFFFF);
     // When transparency > 0, let the Windows acrylic show through
     // transparency 0 = fully opaque panel, transparency 1 = fully clear glass
     final int bgAlpha = ((1.0 - _settings.transparency) * 255).round().clamp(0, 255);
@@ -1463,6 +1480,7 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                                           onRestore: isTrash ? () => _restoreClip(item.id) : null,
                                           onDeleteForever: isTrash ? () => _deletePermanently(item.id) : null,
                                           onSendTelegram: isTrash ? null : () => _sendClipToTelegram(item),
+                                          onColorChanged: isTrash ? null : (colorHex) => _updateClipColor(item, colorHex),
                                         );
                                       },
                                     ),
@@ -1475,7 +1493,7 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                               decoration: BoxDecoration(
                                 color: isDark
                                     ? const Color(0xFF000000).withAlpha(230)
-                                    : const Color(0xFFF1F5F9).withAlpha(200),
+                                    : const Color(0xFFFFFFFF),
                                 border: Border(
                                   top: BorderSide(
                                     color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle,

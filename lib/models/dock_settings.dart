@@ -26,6 +26,8 @@ class DockSettings {
   bool autoRibbonColor; // default: true (dynamically adjust ribbon color to match active theme)
   int displayLines; // 1 to 5 (default: 2)
   int maxAutoChars; // default: 15000 (15k chars for only auto clips)
+  int autoClipsRetentionDays; // 0 = never, or 1, 3, 7, 14, 30 days (default: 7)
+  int trashRetentionDays; // 0 = never, or 1, 3, 7, 14, 30 days (default: 30)
   String telegramBotToken; // Telegram bot token
   String telegramChannelId; // Telegram channel ID (e.g. @channel or -100...)
 
@@ -55,6 +57,8 @@ class DockSettings {
     this.autoRibbonColor = true,
     this.displayLines = 2,
     this.maxAutoChars = 15000,
+    this.autoClipsRetentionDays = 7,
+    this.trashRetentionDays = 30,
     this.telegramBotToken = '',
     this.telegramChannelId = '',
   });
@@ -85,6 +89,8 @@ class DockSettings {
     bool? autoRibbonColor,
     int? displayLines,
     int? maxAutoChars,
+    int? autoClipsRetentionDays,
+    int? trashRetentionDays,
     String? telegramBotToken,
     String? telegramChannelId,
   }) {
@@ -114,6 +120,8 @@ class DockSettings {
       autoRibbonColor: autoRibbonColor ?? this.autoRibbonColor,
       displayLines: (displayLines ?? this.displayLines).clamp(1, 6),
       maxAutoChars: maxAutoChars ?? this.maxAutoChars,
+      autoClipsRetentionDays: autoClipsRetentionDays ?? this.autoClipsRetentionDays,
+      trashRetentionDays: trashRetentionDays ?? this.trashRetentionDays,
       telegramBotToken: telegramBotToken ?? this.telegramBotToken,
       telegramChannelId: telegramChannelId ?? this.telegramChannelId,
     );
@@ -146,6 +154,8 @@ class DockSettings {
       'autoRibbonColor': autoRibbonColor,
       'displayLines': displayLines,
       'maxAutoChars': maxAutoChars,
+      'autoClipsRetentionDays': autoClipsRetentionDays,
+      'trashRetentionDays': trashRetentionDays,
       'telegramBotToken': telegramBotToken,
       'telegramChannelId': telegramChannelId,
     };
@@ -185,6 +195,8 @@ class DockSettings {
       autoRibbonColor: autoRibbon,
       displayLines: (json['displayLines'] as num?)?.toInt().clamp(1, 6) ?? 2,
       maxAutoChars: (json['maxAutoChars'] as num?)?.toInt() ?? 15000,
+      autoClipsRetentionDays: (json['autoClipsRetentionDays'] as num?)?.toInt() ?? 7,
+      trashRetentionDays: (json['trashRetentionDays'] as num?)?.toInt() ?? 30,
       telegramBotToken: json['telegramBotToken'] as String? ?? '',
       telegramChannelId: json['telegramChannelId'] as String? ?? '',
     );

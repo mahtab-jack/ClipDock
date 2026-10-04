@@ -27,6 +27,7 @@ class ClipCard extends StatefulWidget {
   final VoidCallback? onDeleteForever;
   final VoidCallback? onSendTelegram;
   final bool isSendingTelegram;
+  final Function(String? colorHex)? onColorChanged;
 
   const ClipCard({
     super.key,
@@ -50,6 +51,7 @@ class ClipCard extends StatefulWidget {
     this.onDeleteForever,
     this.onSendTelegram,
     this.isSendingTelegram = false,
+    this.onColorChanged,
   });
 
   @override
@@ -61,6 +63,116 @@ class _ClipCardState extends State<ClipCard> {
   bool _isCopied = false;
   bool _isHovered = false;
   Timer? _copiedResetTimer;
+
+  void _showColorPickerPopup(BuildContext context) {
+    final isDark = widget.isDark;
+    const List<String> solidColors = [
+      '#EF4444', // Red
+      '#F97316', // Orange
+      '#F59E0B', // Amber
+      '#10B981', // Emerald
+      '#06B6D4', // Cyan
+      '#3B82F6', // Blue
+      '#8B5CF6', // Purple
+      '#EC4899', // Pink
+      '#64748B', // Slate
+    ];
+
+    showDialog(
+      context: context,
+      barrierColor: Colors.transparent,
+      builder: (ctx) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          alignment: Alignment.center,
+          child: Container(
+            width: 210,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1E293B) : const Color(0xFFFFFFFF),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle,
+                width: 1,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withAlpha(isDark ? 100 : 35),
+                  blurRadius: 14,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Label Color',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
+                      ),
+                    ),
+                    if (widget.item.labelColor != null)
+                      InkWell(
+                        onTap: () {
+                          widget.onColorChanged?.call(null);
+                          Navigator.of(ctx).pop();
+                        },
+                        child: Text(
+                          'Clear',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: solidColors.map((hex) {
+                    final color = Color(int.parse('FF${hex.replaceAll('#', '')}', radix: 16));
+                    final isSelected = widget.item.labelColor?.toUpperCase() == hex.toUpperCase();
+                    return InkWell(
+                      onTap: () {
+                        widget.onColorChanged?.call(hex);
+                        Navigator.of(ctx).pop();
+                      },
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        width: 24,
+                        height: 24,
+                        decoration: BoxDecoration(
+                          color: color,
+                          shape: BoxShape.circle,
+                          border: isSelected
+                              ? Border.all(color: Colors.white, width: 2)
+                              : Border.all(color: Colors.black12, width: 1),
+                        ),
+                        child: isSelected
+                            ? const Icon(Icons.check, size: 13, color: Colors.white)
+                            : null,
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   @override
   void dispose() {
@@ -160,6 +272,14 @@ class _ClipCardState extends State<ClipCard> {
     final textColor = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
     final subtextColor = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
 
+    Color? customLabelColor;
+    if (widget.item.labelColor != null && widget.item.labelColor!.isNotEmpty) {
+      try {
+        final hex = widget.item.labelColor!.replaceAll('#', '');
+        customLabelColor = Color(int.parse('FF$hex', radix: 16));
+      } catch (_) {}
+    }
+
     final cardContent = GestureDetector(
       behavior: HitTestBehavior.opaque,
       onSecondaryTap: widget.isTrash ? null : widget.onEdit,
@@ -194,20 +314,21 @@ class _ClipCardState extends State<ClipCard> {
                 : null,
           ),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Serial Number (Clean Silvery Pill)
+              // Serial Number / Custom Color Label Pill
               Container(
                 constraints: const BoxConstraints(minWidth: 26),
                 height: 22,
                 padding: const EdgeInsets.symmetric(horizontal: 5),
                 decoration: BoxDecoration(
-                  color: isDark
-                      ? AppColors.darkGlassSurface
-                      : AppColors.lightGlassSurface,
+                  color: customLabelColor != null
+                      ? customLabelColor.withAlpha(isDark ? 45 : 30)
+                      : (isDark ? AppColors.darkGlassSurface : AppColors.lightGlassSurface),
                   borderRadius: BorderRadius.circular(5),
                   border: Border.all(
-                    color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle,
-                    width: 1,
+                    color: customLabelColor ?? (isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle),
+                    width: customLabelColor != null ? 1.2 : 1,
                   ),
                 ),
                 alignment: Alignment.center,
@@ -217,7 +338,7 @@ class _ClipCardState extends State<ClipCard> {
                     fontSize: 10.5,
                     fontWeight: FontWeight.w700,
                     letterSpacing: 0.2,
-                    color: isDark ? AppColors.accentSilver : AppColors.lightTextSecondary,
+                    color: customLabelColor ?? (isDark ? AppColors.accentSilver : AppColors.lightTextSecondary),
                   ),
                 ),
               ),
@@ -235,17 +356,31 @@ class _ClipCardState extends State<ClipCard> {
                       child: Padding(
                       padding: const EdgeInsets.only(right: 4),
                       child: widget.item.isImage
-                          ? Row(
-                              crossAxisAlignment: CrossAxisAlignment.center,
+                          ? Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
                               children: [
-                                // Image Thumbnail
+                                if (widget.item.customTitle != null && widget.item.customTitle!.trim().isNotEmpty) ...[
+                                  Text(
+                                    widget.item.customTitle!,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      height: 1.3,
+                                      color: textColor,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 5),
+                                ],
                                 ClipRRect(
                                   borderRadius: BorderRadius.circular(6),
                                   child: Container(
-                                    width: 44,
-                                    height: 44,
+                                    width: double.infinity,
+                                    constraints: const BoxConstraints(maxHeight: 180),
                                     decoration: BoxDecoration(
-                                      color: isDark ? Colors.black26 : Colors.black12,
+                                      color: isDark ? Colors.black26 : const Color(0xFFF1F5F9),
                                       borderRadius: BorderRadius.circular(6),
                                       border: Border.all(
                                         color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle,
@@ -255,52 +390,35 @@ class _ClipCardState extends State<ClipCard> {
                                     child: widget.item.imagePath != null && File(widget.item.imagePath!).existsSync()
                                         ? Image.file(
                                             File(widget.item.imagePath!),
-                                            fit: BoxFit.cover,
-                                            errorBuilder: (context, error, stackTrace) => Icon(
-                                              Icons.image_not_supported_rounded,
-                                              size: 20,
-                                              color: subtextColor,
+                                            fit: BoxFit.contain, // Fit, NOT cover!
+                                            alignment: Alignment.centerLeft,
+                                            errorBuilder: (context, error, stackTrace) => Padding(
+                                              padding: const EdgeInsets.all(12),
+                                              child: Icon(
+                                                Icons.image_not_supported_rounded,
+                                                size: 24,
+                                                color: subtextColor,
+                                              ),
                                             ),
                                           )
-                                        : Icon(
-                                            Icons.image_rounded,
-                                            size: 20,
-                                            color: subtextColor,
+                                        : Padding(
+                                            padding: const EdgeInsets.all(12),
+                                            child: Icon(
+                                              Icons.image_rounded,
+                                              size: 24,
+                                              color: subtextColor,
+                                            ),
                                           ),
                                   ),
                                 ),
-                                const SizedBox(width: 8),
-
-                                // Title and Info
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(
-                                        (widget.item.customTitle != null && widget.item.customTitle!.trim().isNotEmpty)
-                                            ? widget.item.customTitle!
-                                            : (widget.item.title.isNotEmpty ? widget.item.title : 'Captured Image'),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w600,
-                                          height: 1.3,
-                                          color: textColor,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 3),
-                                      Text(
-                                        '${widget.item.timeAgo} • Image',
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                          fontSize: 10,
-                                          color: subtextColor,
-                                        ),
-                                      ),
-                                    ],
+                                const SizedBox(height: 4),
+                                Text(
+                                  '${widget.item.timeAgo} • Image',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: subtextColor,
                                   ),
                                 ),
                               ],
@@ -428,6 +546,36 @@ class _ClipCardState extends State<ClipCard> {
                                   ),
                                 ),
                               ],
+                              // Individual Label Color Picker (Text clips only)
+                              if (!widget.item.isImage && widget.onColorChanged != null)
+                                Tooltip(
+                                  message: customLabelColor != null ? 'Change label color' : 'Set label color',
+                                  child: IconButton(
+                                    onPressed: () => _showColorPickerPopup(context),
+                                    iconSize: 13,
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
+                                    splashRadius: 11,
+                                    icon: customLabelColor != null
+                                        ? Container(
+                                            width: 11,
+                                            height: 11,
+                                            decoration: BoxDecoration(
+                                              color: customLabelColor,
+                                              shape: BoxShape.circle,
+                                              border: Border.all(
+                                                color: isDark ? Colors.white70 : Colors.black45,
+                                                width: 1.2,
+                                              ),
+                                            ),
+                                          )
+                                        : Icon(
+                                            Icons.palette_outlined,
+                                            size: 13,
+                                            color: subtextColor,
+                                          ),
+                                  ),
+                                ),
                               if (widget.onEdit != null)
                                 Tooltip(
                                   message: 'Edit clip',

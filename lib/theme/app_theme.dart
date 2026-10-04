@@ -13,16 +13,16 @@ class AppColors {
   static const Color darkHandle = Color(0xFFE5E5E5); // Silver handle
   static const Color silverGlow = Color(0xFFFFFFFF);
 
-  // Silvery High-Transparency Light palette
-  static const Color lightGlassBg = Color(0x66F1F5F9); // ~40% opacity
-  static const Color lightGlassSurface = Color(0x66FFFFFF); // ~40% opacity
-  static const Color lightGlassCard = Color(0x4DE2E8F0); // ~30% opacity
-  static const Color lightGlassCardHover = Color(0x73CBD5E1);
-  static const Color lightBorder = Color(0x6694A3B8);
-  static const Color lightBorderSubtle = Color(0x3D94A3B8);
-  static const Color lightTextPrimary = Color(0xFF0F172A);
-  static const Color lightTextSecondary = Color(0xFF64748B);
-  static const Color lightHandle = Color(0xFF64748B);
+  // Crisp High-Contrast Light palette (Pure White & Deep Charcoal)
+  static const Color lightGlassBg = Color(0xFFFFFFFF); // Pure crisp white
+  static const Color lightGlassSurface = Color(0xFFFFFFFF);
+  static const Color lightGlassCard = Color(0xFFFFFFFF);
+  static const Color lightGlassCardHover = Color(0xFFF1F5F9);
+  static const Color lightBorder = Color(0xFFCBD5E1); // Crisp distinct border
+  static const Color lightBorderSubtle = Color(0xFFE2E8F0); // Clean visible outline
+  static const Color lightTextPrimary = Color(0xFF0F172A); // Rich deep charcoal black
+  static const Color lightTextSecondary = Color(0xFF334155); // High-contrast dark slate
+  static const Color lightHandle = Color(0xFF475569);
 
   // Accents
   static const Color accentSilver = Color(0xFFCBD5E1);

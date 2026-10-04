@@ -161,6 +161,49 @@ class DatabaseService {
     }
   }
 
+  /// Enforces auto-clip retention and trash retention policy
+  static bool applyRetentionPolicy(DockSettings settings, List<ClipItem> clips) {
+    bool changed = false;
+    final now = DateTime.now();
+
+    // 1. Move old auto clips to trash if older than autoClipsRetentionDays
+    if (settings.autoClipsRetentionDays > 0) {
+      for (final clip in clips) {
+        if (clip.isAuto && !clip.isDeleted && !clip.isStarred) {
+          final ageDays = now.difference(clip.createdAt).inDays;
+          if (ageDays >= settings.autoClipsRetentionDays) {
+            clip.isDeleted = true;
+            clip.deletedAt = now;
+            changed = true;
+          }
+        }
+      }
+    }
+
+    // 2. Permanently delete trash items older than trashRetentionDays
+    if (settings.trashRetentionDays > 0) {
+      clips.removeWhere((clip) {
+        if (clip.isDeleted) {
+          final deleteTime = clip.deletedAt ?? clip.createdAt;
+          final ageDays = now.difference(deleteTime).inDays;
+          if (ageDays >= settings.trashRetentionDays) {
+            if (clip.isImage && clip.imagePath != null) {
+              try {
+                final f = File(clip.imagePath!);
+                if (f.existsSync()) f.deleteSync();
+              } catch (_) {}
+            }
+            changed = true;
+            return true;
+          }
+        }
+        return false;
+      });
+    }
+
+    return changed;
+  }
+
   /// Save all clips atomically to the database file (.db)
   static Future<void> saveAllClips(List<ClipItem> clips) async {
     try {
