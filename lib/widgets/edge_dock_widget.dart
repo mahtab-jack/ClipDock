@@ -1284,8 +1284,10 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                 ),
               ),
             ),
-          ],
-        );
+          ),
+        ),
+      ],
+    );
       },
     ).then((_) {
       if (mounted) {
