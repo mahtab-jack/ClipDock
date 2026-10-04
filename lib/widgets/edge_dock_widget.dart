@@ -584,6 +584,17 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
     _persistClips();
   }
 
+  void _setDialogOpen(bool isOpen) {
+    if (isOpen) {
+      _autoHideTimer?.cancel();
+    }
+    if (mounted) {
+      setState(() {
+        _isDialogOpen = isOpen;
+      });
+    }
+  }
+
   void _showNotification(
     String message, [
     ToastType type = ToastType.success,
@@ -1481,6 +1492,7 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                                           onDeleteForever: isTrash ? () => _deletePermanently(item.id) : null,
                                           onSendTelegram: isTrash ? null : () => _sendClipToTelegram(item),
                                           onColorChanged: isTrash ? null : (colorHex) => _updateClipColor(item, colorHex),
+                                          onDialogOpen: _setDialogOpen,
                                         );
                                       },
                                     ),

@@ -28,6 +28,7 @@ class ClipCard extends StatefulWidget {
   final VoidCallback? onSendTelegram;
   final bool isSendingTelegram;
   final Function(String? colorHex)? onColorChanged;
+  final ValueChanged<bool>? onDialogOpen;
 
   const ClipCard({
     super.key,
@@ -52,6 +53,7 @@ class ClipCard extends StatefulWidget {
     this.onSendTelegram,
     this.isSendingTelegram = false,
     this.onColorChanged,
+    this.onDialogOpen,
   });
 
   @override
@@ -65,6 +67,7 @@ class _ClipCardState extends State<ClipCard> {
   Timer? _copiedResetTimer;
 
   void _showColorPickerPopup(BuildContext context) {
+    widget.onDialogOpen?.call(true);
     final isDark = widget.isDark;
     const List<String> solidColors = [
       '#EF4444', // Red
@@ -171,7 +174,9 @@ class _ClipCardState extends State<ClipCard> {
           ),
         );
       },
-    );
+    ).then((_) {
+      widget.onDialogOpen?.call(false);
+    });
   }
 
   @override
@@ -374,42 +379,50 @@ class _ClipCardState extends State<ClipCard> {
                                   ),
                                   const SizedBox(height: 5),
                                 ],
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(6),
-                                  child: Container(
-                                    width: double.infinity,
-                                    constraints: const BoxConstraints(maxHeight: 180),
-                                    decoration: BoxDecoration(
-                                      color: isDark ? Colors.black26 : const Color(0xFFF1F5F9),
-                                      borderRadius: BorderRadius.circular(6),
-                                      border: Border.all(
-                                        color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle,
-                                        width: 1,
-                                      ),
-                                    ),
-                                    child: widget.item.imagePath != null && File(widget.item.imagePath!).existsSync()
-                                        ? Image.file(
-                                            File(widget.item.imagePath!),
-                                            fit: BoxFit.contain, // Fit, NOT cover!
-                                            alignment: Alignment.centerLeft,
-                                            errorBuilder: (context, error, stackTrace) => Padding(
-                                              padding: const EdgeInsets.all(12),
-                                              child: Icon(
-                                                Icons.image_not_supported_rounded,
-                                                size: 24,
-                                                color: subtextColor,
-                                              ),
-                                            ),
-                                          )
-                                        : Padding(
-                                            padding: const EdgeInsets.all(12),
-                                            child: Icon(
-                                              Icons.image_rounded,
-                                              size: 24,
-                                              color: subtextColor,
+                                LayoutBuilder(
+                                  builder: (context, constraints) {
+                                    final maxImgWidth = constraints.maxWidth * 0.70;
+                                    return Align(
+                                      alignment: Alignment.centerLeft,
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(6),
+                                        child: Container(
+                                          constraints: BoxConstraints(
+                                            maxWidth: maxImgWidth,
+                                            maxHeight: 180,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            borderRadius: BorderRadius.circular(6),
+                                            border: Border.all(
+                                              color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle,
+                                              width: 1,
                                             ),
                                           ),
-                                  ),
+                                          child: widget.item.imagePath != null && File(widget.item.imagePath!).existsSync()
+                                              ? Image.file(
+                                                  File(widget.item.imagePath!),
+                                                  fit: BoxFit.contain, // Fit, NOT cover!
+                                                  errorBuilder: (context, error, stackTrace) => Padding(
+                                                    padding: const EdgeInsets.all(12),
+                                                    child: Icon(
+                                                      Icons.image_not_supported_rounded,
+                                                      size: 24,
+                                                      color: subtextColor,
+                                                    ),
+                                                  ),
+                                                )
+                                              : Padding(
+                                                  padding: const EdgeInsets.all(12),
+                                                  child: Icon(
+                                                    Icons.image_rounded,
+                                                    size: 24,
+                                                    color: subtextColor,
+                                                  ),
+                                                ),
+                                        ),
+                                      ),
+                                    );
+                                  },
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
