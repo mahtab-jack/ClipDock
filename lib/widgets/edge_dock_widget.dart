@@ -45,6 +45,7 @@ class EdgeDockWidget extends StatefulWidget {
 class EdgeDockWidgetState extends State<EdgeDockWidget> with WindowListener {
   bool get isPinned => _isPinned;
   final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
   List<ClipItem> _clips = [];
   List<ClipItem> _filteredClips = [];
 
@@ -83,6 +84,13 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> with WindowListener {
     _loadSettingsAndClips();
     _initScreenAndStart();
     _startClipboardMonitoring();
+    _searchFocusNode.addListener(() {
+      try {
+        const MethodChannel('cnote/drag_drop').invokeMethod('setAllowActivation', {
+          'allow': _searchFocusNode.hasFocus || _isDialogOpen,
+        });
+      } catch (_) {}
+    });
   }
 
   @override
@@ -336,6 +344,7 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> with WindowListener {
     _clipboardMonitorTimer?.cancel();
     _startupTimer?.cancel();
     _searchController.dispose();
+    _searchFocusNode.dispose();
     _autoHideTimer?.cancel();
     _toastTimer?.cancel();
     super.dispose();
@@ -594,6 +603,11 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> with WindowListener {
     if (isOpen) {
       _autoHideTimer?.cancel();
     }
+    try {
+      const MethodChannel('cnote/drag_drop').invokeMethod('setAllowActivation', {
+        'allow': isOpen || _searchFocusNode.hasFocus,
+      });
+    } catch (_) {}
     if (mounted) {
       setState(() {
         _isDialogOpen = isOpen;
@@ -1430,6 +1444,7 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                             // Search & Actions Bar (Tabs [Clips, Starred, Auto, Trash] and Clear All / Empty button)
                             SearchFilterBar(
                               controller: _searchController,
+                              focusNode: _searchFocusNode,
                               isDark: isDark,
                               allCount: allCount,
                               autoCount: autoCount,
@@ -1581,9 +1596,9 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                                           dragToPaste: _settings.dragToPaste,
                                           isSendingTelegram: _sendingTelegramClipId == item.id,
                                           onCopy: () => _onCopyClip(item, index + 1),
-                                          onNotify: (msg) {
+                                          onNotify: (msg, [type = ToastType.success]) {
                                             _lastMonitoredClipboard = item.content.trim();
-                                            _showNotification(msg);
+                                            _showNotification(msg, type);
                                           },
                                           onEdit: isTrash ? null : () => _openEditDialog(item),
                                           onDelete: isTrash ? null : () => _deleteClip(item.id),

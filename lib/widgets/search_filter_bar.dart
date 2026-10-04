@@ -16,6 +16,7 @@ enum MediaFilter {
 
 class SearchFilterBar extends StatelessWidget {
   final TextEditingController controller;
+  final FocusNode? focusNode;
   final bool isDark;
   final int allCount;
   final int autoCount;
@@ -36,6 +37,7 @@ class SearchFilterBar extends StatelessWidget {
   const SearchFilterBar({
     super.key,
     required this.controller,
+    this.focusNode,
     required this.isDark,
     required this.allCount,
     required this.autoCount,
@@ -92,6 +94,7 @@ class SearchFilterBar extends StatelessWidget {
                 Expanded(
                   child: TextField(
                     controller: controller,
+                    focusNode: focusNode,
                     onChanged: onChanged,
                     textAlignVertical: TextAlignVertical.center,
                     style: TextStyle(

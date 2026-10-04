@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/clip_item.dart';
 import '../theme/app_theme.dart';
+import 'edge_dock_widget.dart' show ToastType;
 import 'telegram_icon.dart';
 
 class ClipCard extends StatefulWidget {
@@ -17,7 +18,7 @@ class ClipCard extends StatefulWidget {
   final bool clickRowToFill;
   final bool showCopyButton;
   final bool dragToPaste;
-  final Function(String message)? onNotify;
+  final Function(String message, [ToastType type])? onNotify;
   final VoidCallback? onCopy;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
@@ -216,29 +217,40 @@ class _ClipCardState extends State<ClipCard> {
     });
   }
 
-  void _fillIntoActiveWindow() {
+  Future<void> _fillIntoActiveWindow() async {
     final shouldAlsoCopy = widget.clickRowToCopy;
+    bool success = false;
     if (widget.item.isImage && widget.item.imagePath != null) {
       try {
-        _dragDropChannel.invokeMethod('fillImageIntoActiveWindow', {
+        final result = await _dragDropChannel.invokeMethod<bool>('fillImageIntoActiveWindow', {
           'filePath': widget.item.imagePath,
         });
+        success = result ?? false;
       } catch (_) {}
-      widget.onNotify?.call('Filled image #${widget.serialNo} into active window');
+      if (success) {
+        widget.onNotify?.call('Filled image #${widget.serialNo} into active window', ToastType.success);
+      } else {
+        widget.onNotify?.call('No active input found to fill', ToastType.warning);
+      }
     } else {
       if (shouldAlsoCopy) {
         Clipboard.setData(ClipboardData(text: widget.item.content));
       }
       try {
-        _dragDropChannel.invokeMethod('fillTextIntoActiveWindow', {
+        final result = await _dragDropChannel.invokeMethod<bool>('fillTextIntoActiveWindow', {
           'text': widget.item.content,
           'restoreClipboard': !shouldAlsoCopy,
         });
+        success = result ?? false;
       } catch (_) {}
-      widget.onNotify?.call('Filled clip #${widget.serialNo} into active window');
+      if (success) {
+        widget.onNotify?.call('Filled clip #${widget.serialNo} into active window', ToastType.success);
+      } else {
+        widget.onNotify?.call('No active input found to fill', ToastType.warning);
+      }
     }
 
-    if (shouldAlsoCopy) {
+    if (shouldAlsoCopy && success) {
       _copiedResetTimer?.cancel();
       setState(() {
         _isCopied = true;

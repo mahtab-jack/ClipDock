@@ -2,6 +2,7 @@
 
 #include <optional>
 #include <dwmapi.h>
+#include <shlobj.h>
 
 #include "flutter/generated_plugin_registrant.h"
 #include "drag_drop_helper.h"
@@ -55,28 +56,65 @@ static int GetEncoderClsid(const WCHAR* format, CLSID* pClsid) {
   return -1;
 }
 
+static bool IsRealAppWindow(HWND hwnd, HWND self_hwnd) {
+  if (hwnd == NULL || !IsWindow(hwnd) || !IsWindowVisible(hwnd)) return false;
+  if (hwnd == self_hwnd || GetAncestor(hwnd, GA_ROOT) == self_hwnd) return false;
+
+  wchar_t class_name[256] = {};
+  GetClassName(hwnd, class_name, 255);
+  if (wcscmp(class_name, L"Shell_TrayWnd") == 0 ||
+      wcscmp(class_name, L"Progman") == 0 ||
+      wcscmp(class_name, L"WorkerW") == 0 ||
+      wcscmp(class_name, L"Shell_SecondaryTrayWnd") == 0) {
+    return false;
+  }
+  return true;
+}
+
 static HWND g_last_external_window = NULL;
 static HWND g_last_external_focus = NULL;
+static bool g_allow_activation = false;
 
 static void RecordForegroundWindow(HWND self_hwnd) {
   HWND fg = GetForegroundWindow();
   if (fg != NULL && fg != self_hwnd && GetAncestor(fg, GA_ROOT) != self_hwnd) {
-    g_last_external_window = fg;
+    if (IsRealAppWindow(fg, self_hwnd)) {
+      g_last_external_window = fg;
 
-    DWORD target_thread = GetWindowThreadProcessId(fg, NULL);
-    GUITHREADINFO gui_info = {};
-    gui_info.cbSize = sizeof(GUITHREADINFO);
-    if (GetGUIThreadInfo(target_thread, &gui_info)) {
-      if (gui_info.hwndFocus && IsWindow(gui_info.hwndFocus)) {
-        g_last_external_focus = gui_info.hwndFocus;
-      } else if (gui_info.hwndCaret && IsWindow(gui_info.hwndCaret)) {
-        g_last_external_focus = gui_info.hwndCaret;
+      DWORD target_thread = GetWindowThreadProcessId(fg, NULL);
+      GUITHREADINFO gui_info = {};
+      gui_info.cbSize = sizeof(GUITHREADINFO);
+      if (GetGUIThreadInfo(target_thread, &gui_info)) {
+        if (gui_info.hwndFocus && IsWindow(gui_info.hwndFocus)) {
+          g_last_external_focus = gui_info.hwndFocus;
+        } else if (gui_info.hwndCaret && IsWindow(gui_info.hwndCaret)) {
+          g_last_external_focus = gui_info.hwndCaret;
+        } else {
+          g_last_external_focus = fg;
+        }
+      } else {
+        g_last_external_focus = fg;
       }
+    } else {
+      g_last_external_window = NULL;
+      g_last_external_focus = NULL;
     }
   }
 }
 
-static void PasteTextIntoWindow(HWND self_hwnd, const std::wstring& wide_text, bool restore_clipboard = false) {
+static bool PasteTextIntoWindow(HWND self_hwnd, const std::wstring& wide_text, bool restore_clipboard = false) {
+  HWND target_hwnd = g_last_external_window;
+  if (!IsRealAppWindow(target_hwnd, self_hwnd)) {
+    HWND fg = GetForegroundWindow();
+    if (IsRealAppWindow(fg, self_hwnd)) {
+      target_hwnd = fg;
+    }
+  }
+
+  if (!IsRealAppWindow(target_hwnd, self_hwnd)) {
+    return false;
+  }
+
   // If restore_clipboard requested, backup previous clipboard text
   std::wstring previous_clipboard;
   bool had_previous_clipboard = false;
@@ -107,19 +145,13 @@ static void PasteTextIntoWindow(HWND self_hwnd, const std::wstring& wide_text, b
       }
     }
     CloseClipboard();
+  } else {
+    return false;
   }
 
-  // 2. Identify target window
-  HWND target_hwnd = g_last_external_window;
-  if (target_hwnd == NULL || !IsWindow(target_hwnd)) {
-    HWND fg = GetForegroundWindow();
-    if (fg != NULL && fg != self_hwnd && GetAncestor(fg, GA_ROOT) != self_hwnd) {
-      target_hwnd = fg;
-    }
-  }
-
-  if (target_hwnd == NULL || !IsWindow(target_hwnd)) {
-    return;
+  HWND popup = GetLastActivePopup(target_hwnd);
+  if (popup && IsRealAppWindow(popup, self_hwnd)) {
+    target_hwnd = popup;
   }
 
   DWORD current_thread = GetCurrentThreadId();
@@ -133,13 +165,18 @@ static void PasteTextIntoWindow(HWND self_hwnd, const std::wstring& wide_text, b
 
   AllowSetForegroundWindow(ASFW_ANY);
 
+  if (IsIconic(target_hwnd)) {
+    ShowWindow(target_hwnd, SW_RESTORE);
+  }
+
   // 4. Reactivate target window and restore focus
   SetForegroundWindow(target_hwnd);
   SetActiveWindow(target_hwnd);
   BringWindowToTop(target_hwnd);
 
   HWND focus_target = g_last_external_focus;
-  if (focus_target != NULL && IsWindow(focus_target)) {
+  if (focus_target != NULL && IsWindow(focus_target) &&
+      (focus_target == target_hwnd || IsChild(target_hwnd, focus_target))) {
     SetFocus(focus_target);
   } else {
     SetFocus(target_hwnd);
@@ -148,7 +185,7 @@ static void PasteTextIntoWindow(HWND self_hwnd, const std::wstring& wide_text, b
   // 5. Short sleep while thread input remains ATTACHED
   Sleep(45);
 
-  // 6. Simulate Ctrl+V using hardware scan codes and keybd_event & SendInput
+  // 6. Simulate Ctrl+V using hardware scan codes and keybd_event
   keybd_event(VK_CONTROL, 0x1D, 0, 0);
   Sleep(15);
   keybd_event('V', 0x2F, 0, 0);
@@ -184,6 +221,8 @@ static void PasteTextIntoWindow(HWND self_hwnd, const std::wstring& wide_text, b
       CloseClipboard();
     }
   }
+
+  return true;
 }
 
 // Save CF_DIB / CF_DIBV5 from clipboard directly as PNG or BMP file
@@ -285,113 +324,173 @@ static bool SaveClipboardImageToFile(HWND self_hwnd, const std::wstring& target_
   return true;
 }
 
-// Copy image file (PNG, BMP, JPG) to Windows clipboard
+// Copy image file (PNG, BMP, JPG) to Windows clipboard with full modern app support
+// (CF_HDROP for Telegram/Discord/Slack/Browsers, PNG format, CF_DIB, CF_BITMAP)
 static bool CopyImageFileToClipboard(HWND self_hwnd, const std::wstring& file_path) {
   EnsureGdiplus();
+
+  DWORD file_attr = GetFileAttributesW(file_path.c_str());
+  if (file_attr == INVALID_FILE_ATTRIBUTES || (file_attr & FILE_ATTRIBUTE_DIRECTORY)) {
+    return false;
+  }
+
+  if (!OpenClipboard(self_hwnd)) {
+    return false;
+  }
+  EmptyClipboard();
+
+  // 1. CF_HDROP: Recognized by Telegram, Discord, Slack, WhatsApp, and Web browsers
+  size_t path_len = file_path.size();
+  size_t path_bytes = (path_len + 2) * sizeof(wchar_t);
+  size_t dropfiles_size = sizeof(DROPFILES) + path_bytes;
+  HGLOBAL hDrop = GlobalAlloc(GHND, dropfiles_size);
+  if (hDrop) {
+    DROPFILES* pDrop = static_cast<DROPFILES*>(GlobalLock(hDrop));
+    if (pDrop) {
+      pDrop->pFiles = sizeof(DROPFILES);
+      pDrop->pt.x = 0;
+      pDrop->pt.y = 0;
+      pDrop->fNC = FALSE;
+      pDrop->fWide = TRUE;
+      wchar_t* pDestPath = reinterpret_cast<wchar_t*>(reinterpret_cast<BYTE*>(pDrop) + sizeof(DROPFILES));
+      wcsncpy_s(pDestPath, path_len + 1, file_path.c_str(), path_len);
+      pDestPath[path_len] = L'\0';
+      pDestPath[path_len + 1] = L'\0';
+      GlobalUnlock(hDrop);
+      SetClipboardData(CF_HDROP, hDrop);
+    } else {
+      GlobalFree(hDrop);
+    }
+  }
+
+  // 2. Raw PNG format: Preferred by modern chat apps (Telegram, Discord, Chromium)
+  std::ifstream in(file_path, std::ios::binary | std::ios::ate);
+  if (in.is_open()) {
+    std::streamsize file_size = in.tellg();
+    if (file_size > 0) {
+      in.seekg(0, std::ios::beg);
+      HGLOBAL hPng = GlobalAlloc(GMEM_MOVEABLE, static_cast<size_t>(file_size));
+      if (hPng) {
+        void* pPng = GlobalLock(hPng);
+        if (pPng) {
+          in.read(reinterpret_cast<char*>(pPng), file_size);
+          GlobalUnlock(hPng);
+          UINT cf_png = RegisterClipboardFormat(L"PNG");
+          SetClipboardData(cf_png, hPng);
+        } else {
+          GlobalFree(hPng);
+        }
+      }
+    }
+    in.close();
+  }
+
+  // 3. CF_DIB and CF_BITMAP: Standard Windows device-independent pixel format
   Gdiplus::Bitmap bitmap(file_path.c_str());
   if (bitmap.GetLastStatus() == Gdiplus::Ok) {
+    HDC screen_dc = GetDC(NULL);
     HBITMAP hbm = NULL;
     bitmap.GetHBITMAP(Gdiplus::Color(255, 255, 255), &hbm);
     if (hbm) {
-      if (OpenClipboard(self_hwnd)) {
-        EmptyClipboard();
-        SetClipboardData(CF_BITMAP, hbm);
-        CloseClipboard();
-        return true;
-      } else {
-        DeleteObject(hbm);
+      BITMAP bm;
+      if (GetObject(hbm, sizeof(BITMAP), &bm)) {
+        BITMAPINFOHEADER bi = {};
+        bi.biSize = sizeof(BITMAPINFOHEADER);
+        bi.biWidth = bm.bmWidth;
+        bi.biHeight = bm.bmHeight;
+        bi.biPlanes = 1;
+        bi.biBitCount = 32;
+        bi.biCompression = BI_RGB;
+        DWORD dib_data_size = ((bm.bmWidth * 32 + 31) / 32) * 4 * bm.bmHeight;
+        HGLOBAL hDib = GlobalAlloc(GHND, sizeof(BITMAPINFOHEADER) + dib_data_size);
+        if (hDib) {
+          BYTE* pDib = static_cast<BYTE*>(GlobalLock(hDib));
+          if (pDib) {
+            memcpy(pDib, &bi, sizeof(BITMAPINFOHEADER));
+            GetDIBits(screen_dc, hbm, 0, static_cast<UINT>(bm.bmHeight),
+                      pDib + sizeof(BITMAPINFOHEADER),
+                      reinterpret_cast<BITMAPINFO*>(&bi), DIB_RGB_COLORS);
+            GlobalUnlock(hDib);
+            SetClipboardData(CF_DIB, hDib);
+          } else {
+            GlobalFree(hDib);
+          }
+        }
       }
+      SetClipboardData(CF_BITMAP, hbm);
     }
+    ReleaseDC(NULL, screen_dc);
   }
 
-  // Fallback to legacy BMP reading
-  std::ifstream in(file_path, std::ios::binary | std::ios::ate);
-  if (!in.is_open()) return false;
-
-  std::streamsize file_size = in.tellg();
-  if (file_size <= static_cast<std::streamsize>(sizeof(BITMAPFILEHEADER))) return false;
-
-  in.seekg(0, std::ios::beg);
-  BITMAPFILEHEADER bfh;
-  in.read(reinterpret_cast<char*>(&bfh), sizeof(bfh));
-  if (bfh.bfType != 0x4D42) return false;
-
-  size_t dib_size = static_cast<size_t>(file_size - sizeof(BITMAPFILEHEADER));
-  HGLOBAL hGlobal = GlobalAlloc(GMEM_MOVEABLE, dib_size);
-  if (!hGlobal) return false;
-
-  void* pDest = GlobalLock(hGlobal);
-  if (!pDest) {
-    GlobalFree(hGlobal);
-    return false;
-  }
-
-  in.read(reinterpret_cast<char*>(pDest), dib_size);
-  GlobalUnlock(hGlobal);
-
-  if (OpenClipboard(self_hwnd)) {
-    EmptyClipboard();
-    SetClipboardData(CF_DIB, hGlobal);
-    CloseClipboard();
-    return true;
-  } else {
-    GlobalFree(hGlobal);
-    return false;
-  }
+  CloseClipboard();
+  return true;
 }
 
-static void PasteImageIntoWindow(HWND self_hwnd, const std::wstring& file_path) {
-  if (CopyImageFileToClipboard(self_hwnd, file_path)) {
-    // Identify target window and send Ctrl+V
-    HWND target_hwnd = g_last_external_window;
-    if (target_hwnd == NULL || !IsWindow(target_hwnd)) {
-      HWND fg = GetForegroundWindow();
-      if (fg != NULL && fg != self_hwnd && GetAncestor(fg, GA_ROOT) != self_hwnd) {
-        target_hwnd = fg;
-      }
-    }
-
-    if (target_hwnd == NULL || !IsWindow(target_hwnd)) {
-      return;
-    }
-
-    DWORD current_thread = GetCurrentThreadId();
-    DWORD target_thread = GetWindowThreadProcessId(target_hwnd, NULL);
-
-    BOOL attached = FALSE;
-    if (current_thread != target_thread) {
-      attached = AttachThreadInput(current_thread, target_thread, TRUE);
-    }
-
-    AllowSetForegroundWindow(ASFW_ANY);
-
-    SetForegroundWindow(target_hwnd);
-    SetActiveWindow(target_hwnd);
-    BringWindowToTop(target_hwnd);
-
-    HWND focus_target = g_last_external_focus;
-    if (focus_target != NULL && IsWindow(focus_target)) {
-      SetFocus(focus_target);
-    } else {
-      SetFocus(target_hwnd);
-    }
-
-    Sleep(45);
-
-    keybd_event(VK_CONTROL, 0x1D, 0, 0);
-    Sleep(15);
-    keybd_event('V', 0x2F, 0, 0);
-    Sleep(15);
-    keybd_event('V', 0x2F, KEYEVENTF_KEYUP, 0);
-    Sleep(15);
-    keybd_event(VK_CONTROL, 0x1D, KEYEVENTF_KEYUP, 0);
-
-    Sleep(25);
-
-    if (attached) {
-      AttachThreadInput(current_thread, target_thread, FALSE);
+static bool PasteImageIntoWindow(HWND self_hwnd, const std::wstring& file_path) {
+  HWND target_hwnd = g_last_external_window;
+  if (!IsRealAppWindow(target_hwnd, self_hwnd)) {
+    HWND fg = GetForegroundWindow();
+    if (IsRealAppWindow(fg, self_hwnd)) {
+      target_hwnd = fg;
     }
   }
+
+  if (!IsRealAppWindow(target_hwnd, self_hwnd)) {
+    return false;
+  }
+
+  if (!CopyImageFileToClipboard(self_hwnd, file_path)) {
+    return false;
+  }
+
+  HWND popup = GetLastActivePopup(target_hwnd);
+  if (popup && IsRealAppWindow(popup, self_hwnd)) {
+    target_hwnd = popup;
+  }
+
+  DWORD current_thread = GetCurrentThreadId();
+  DWORD target_thread = GetWindowThreadProcessId(target_hwnd, NULL);
+
+  BOOL attached = FALSE;
+  if (current_thread != target_thread) {
+    attached = AttachThreadInput(current_thread, target_thread, TRUE);
+  }
+
+  AllowSetForegroundWindow(ASFW_ANY);
+
+  if (IsIconic(target_hwnd)) {
+    ShowWindow(target_hwnd, SW_RESTORE);
+  }
+
+  SetForegroundWindow(target_hwnd);
+  SetActiveWindow(target_hwnd);
+  BringWindowToTop(target_hwnd);
+
+  HWND focus_target = g_last_external_focus;
+  if (focus_target != NULL && IsWindow(focus_target) &&
+      (focus_target == target_hwnd || IsChild(target_hwnd, focus_target))) {
+    SetFocus(focus_target);
+  } else {
+    SetFocus(target_hwnd);
+  }
+
+  Sleep(50);
+
+  keybd_event(VK_CONTROL, 0x1D, 0, 0);
+  Sleep(20);
+  keybd_event('V', 0x2F, 0, 0);
+  Sleep(20);
+  keybd_event('V', 0x2F, KEYEVENTF_KEYUP, 0);
+  Sleep(20);
+  keybd_event(VK_CONTROL, 0x1D, KEYEVENTF_KEYUP, 0);
+
+  Sleep(30);
+
+  if (attached) {
+    AttachThreadInput(current_thread, target_thread, FALSE);
+  }
+
+  return true;
 }
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
@@ -443,6 +542,23 @@ bool FlutterWindow::OnCreate() {
           return;
         }
 
+        if (call.method_name() == "setAllowActivation") {
+          const auto* arguments = std::get_if<flutter::EncodableMap>(call.arguments());
+          if (arguments) {
+            auto allow_it = arguments->find(flutter::EncodableValue("allow"));
+            if (allow_it != arguments->end() && std::holds_alternative<bool>(allow_it->second)) {
+              g_allow_activation = std::get<bool>(allow_it->second);
+              if (g_allow_activation) {
+                SetForegroundWindow(self_hwnd);
+                SetActiveWindow(self_hwnd);
+                SetFocus(self_hwnd);
+              }
+            }
+          }
+          result->Success(flutter::EncodableValue(true));
+          return;
+        }
+
         if (call.method_name() == "captureActiveWindow") {
           RecordForegroundWindow(self_hwnd);
           result->Success(flutter::EncodableValue(true));
@@ -472,13 +588,13 @@ bool FlutterWindow::OnCreate() {
                 if (!wide_text.empty() && wide_text.back() == L'\0') {
                   wide_text.pop_back();
                 }
-                PasteTextIntoWindow(self_hwnd, wide_text, restore_clipboard);
+                bool ok = PasteTextIntoWindow(self_hwnd, wide_text, restore_clipboard);
+                result->Success(flutter::EncodableValue(ok));
+                return;
               }
-              result->Success(flutter::EncodableValue(true));
-              return;
             }
           }
-          result->Error("BAD_ARGS", "Missing text argument");
+          result->Success(flutter::EncodableValue(false));
           return;
         }
 
@@ -574,13 +690,13 @@ bool FlutterWindow::OnCreate() {
                 if (!wide_path.empty() && wide_path.back() == L'\0') {
                   wide_path.pop_back();
                 }
-                PasteImageIntoWindow(self_hwnd, wide_path);
-                result->Success(flutter::EncodableValue(true));
+                bool ok = PasteImageIntoWindow(self_hwnd, wide_path);
+                result->Success(flutter::EncodableValue(ok));
                 return;
               }
             }
           }
-          result->Error("BAD_ARGS", "Missing filePath argument");
+          result->Success(flutter::EncodableValue(false));
           return;
         }
 
@@ -612,8 +728,15 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
+  if (message == WM_MOUSEACTIVATE) {
+    RecordForegroundWindow(hwnd);
+    if (!g_allow_activation) {
+      return MA_NOACTIVATE;
+    }
+  }
+
   if (message == WM_MOUSEMOVE || message == WM_SETCURSOR || message == WM_NCMOUSEMOVE ||
-      message == WM_MOUSEACTIVATE || message == WM_ACTIVATE) {
+      message == WM_ACTIVATE) {
     RecordForegroundWindow(hwnd);
   }
 
