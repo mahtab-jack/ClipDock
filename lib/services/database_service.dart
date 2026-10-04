@@ -109,14 +109,55 @@ class DatabaseService {
 
       final dynamic decoded = jsonDecode(content);
       if (decoded is List) {
-        return decoded
+        final clips = decoded
             .map((item) => ClipItem.fromJson(item as Map<String, dynamic>))
             .toList();
+        // Clean up leaked and orphaned image files in the background
+        cleanupOrphanedImages(clips);
+        return clips;
       }
       return [];
     } catch (e) {
       debugPrint('Error loading clips from database: $e');
       return [];
+    }
+  }
+
+  /// Clean up orphaned image files that are not referenced by any clip in the database
+  static Future<int> cleanupOrphanedImages(List<ClipItem> clips) async {
+    try {
+      final imagesDir = await getImagesDirectory();
+      if (!await imagesDir.exists()) return 0;
+
+      final activePaths = <String>{};
+      for (final clip in clips) {
+        if (clip.isImage && clip.imagePath != null && clip.imagePath!.isNotEmpty) {
+          activePaths.add(clip.imagePath!.toLowerCase().replaceAll('/', '\\'));
+        }
+      }
+
+      int deletedCount = 0;
+      final entities = imagesDir.listSync();
+      for (final entity in entities) {
+        if (entity is File) {
+          final normalized = entity.path.toLowerCase().replaceAll('/', '\\');
+          // Preserve temp files in active use
+          if (normalized.endsWith('temp_clip.bmp')) continue;
+          if (!activePaths.contains(normalized)) {
+            try {
+              entity.deleteSync();
+              deletedCount++;
+            } catch (_) {}
+          }
+        }
+      }
+      if (deletedCount > 0) {
+        debugPrint('Cleaned up $deletedCount orphaned image files from disk');
+      }
+      return deletedCount;
+    } catch (e) {
+      debugPrint('Error cleaning up orphaned images: $e');
+      return 0;
     }
   }
 

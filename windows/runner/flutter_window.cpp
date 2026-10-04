@@ -8,6 +8,33 @@
 
 #include <fstream>
 #include <vector>
+#include <gdiplus.h>
+#pragma comment(lib, "gdiplus.lib")
+
+static ULONG_PTR g_gdiplusToken = 0;
+static void EnsureGdiplus() {
+  if (g_gdiplusToken == 0) {
+    Gdiplus::GdiplusStartupInput gdiplusStartupInput;
+    Gdiplus::GdiplusStartup(&g_gdiplusToken, &gdiplusStartupInput, NULL);
+  }
+}
+
+static int GetEncoderClsid(const WCHAR* format, CLSID* pClsid) {
+  UINT num = 0;
+  UINT size = 0;
+  Gdiplus::GetImageEncodersSize(&num, &size);
+  if (size == 0) return -1;
+  std::vector<BYTE> memory(size);
+  Gdiplus::ImageCodecInfo* pImageCodecInfo = (Gdiplus::ImageCodecInfo*)(memory.data());
+  Gdiplus::GetImageEncoders(num, size, pImageCodecInfo);
+  for (UINT j = 0; j < num; ++j) {
+    if (wcscmp(pImageCodecInfo[j].MimeType, format) == 0) {
+      *pClsid = pImageCodecInfo[j].Clsid;
+      return j;
+    }
+  }
+  return -1;
+}
 
 static HWND g_last_external_window = NULL;
 static HWND g_last_external_focus = NULL;
@@ -30,7 +57,23 @@ static void RecordForegroundWindow(HWND self_hwnd) {
   }
 }
 
-static void PasteTextIntoWindow(HWND self_hwnd, const std::wstring& wide_text) {
+static void PasteTextIntoWindow(HWND self_hwnd, const std::wstring& wide_text, bool restore_clipboard = false) {
+  // If restore_clipboard requested, backup previous clipboard text
+  std::wstring previous_clipboard;
+  bool had_previous_clipboard = false;
+  if (restore_clipboard && OpenClipboard(self_hwnd)) {
+    HANDLE hPrev = GetClipboardData(CF_UNICODETEXT);
+    if (hPrev) {
+      wchar_t* pPrev = (wchar_t*)GlobalLock(hPrev);
+      if (pPrev) {
+        previous_clipboard = pPrev;
+        had_previous_clipboard = true;
+        GlobalUnlock(hPrev);
+      }
+    }
+    CloseClipboard();
+  }
+
   // 1. Put text on Windows Clipboard
   if (OpenClipboard(self_hwnd)) {
     EmptyClipboard();
@@ -101,9 +144,30 @@ static void PasteTextIntoWindow(HWND self_hwnd, const std::wstring& wide_text) {
   if (attached) {
     AttachThreadInput(current_thread, target_thread, FALSE);
   }
+
+  // 8. If restore_clipboard requested, restore previous clipboard content
+  if (restore_clipboard) {
+    Sleep(35);
+    if (OpenClipboard(self_hwnd)) {
+      EmptyClipboard();
+      if (had_previous_clipboard) {
+        size_t prev_byte_count = (previous_clipboard.size() + 1) * sizeof(wchar_t);
+        HGLOBAL hgPrev = GlobalAlloc(GMEM_MOVEABLE, prev_byte_count);
+        if (hgPrev) {
+          void* lockedPrev = GlobalLock(hgPrev);
+          if (lockedPrev) {
+            memcpy(lockedPrev, previous_clipboard.c_str(), prev_byte_count);
+            GlobalUnlock(hgPrev);
+            SetClipboardData(CF_UNICODETEXT, hgPrev);
+          }
+        }
+      }
+      CloseClipboard();
+    }
+  }
 }
 
-// Save CF_DIB / CF_DIBV5 from clipboard directly as BMP file
+// Save CF_DIB / CF_DIBV5 from clipboard directly as PNG or BMP file
 static bool SaveClipboardImageToFile(HWND self_hwnd, const std::wstring& target_path) {
   if (!OpenClipboard(self_hwnd)) {
     return false;
@@ -146,6 +210,41 @@ static bool SaveClipboardImageToFile(HWND self_hwnd, const std::wstring& target_
     off_bits += 3 * sizeof(DWORD);
   }
 
+  // Check if target is PNG
+  bool is_png = false;
+  if (target_path.size() >= 4) {
+    std::wstring ext = target_path.substr(target_path.size() - 4);
+    if (ext == L".png" || ext == L".PNG") {
+      is_png = true;
+    }
+  }
+
+  if (is_png) {
+    EnsureGdiplus();
+    CLSID pngClsid;
+    if (GetEncoderClsid(L"image/png", &pngClsid) != -1) {
+      HDC hdc = GetDC(NULL);
+      DWORD dib_off = bih->biSize;
+      if (bih->biBitCount <= 8) {
+        dib_off += colors * sizeof(RGBQUAD);
+      } else if (bih->biCompression == BI_BITFIELDS) {
+        dib_off += 3 * sizeof(DWORD);
+      }
+      const void* pBits = reinterpret_cast<const BYTE*>(pDib) + dib_off;
+      HBITMAP hbm = CreateDIBitmap(hdc, bih, CBM_INIT, pBits, reinterpret_cast<BITMAPINFO*>(bih), DIB_RGB_COLORS);
+      ReleaseDC(NULL, hdc);
+
+      if (hbm) {
+        Gdiplus::Bitmap gdiBitmap(hbm, NULL);
+        Gdiplus::Status st = gdiBitmap.Save(target_path.c_str(), &pngClsid, NULL);
+        DeleteObject(hbm);
+        GlobalUnlock(hData);
+        CloseClipboard();
+        return (st == Gdiplus::Ok);
+      }
+    }
+  }
+
   BITMAPFILEHEADER bfh = {};
   bfh.bfType = 0x4D42; // 'BM'
   bfh.bfSize = static_cast<DWORD>(sizeof(BITMAPFILEHEADER) + dib_size);
@@ -167,8 +266,26 @@ static bool SaveClipboardImageToFile(HWND self_hwnd, const std::wstring& target_
   return true;
 }
 
-// Copy BMP file to Windows clipboard as CF_DIB
-static bool CopyBmpFileToClipboard(HWND self_hwnd, const std::wstring& file_path) {
+// Copy image file (PNG, BMP, JPG) to Windows clipboard
+static bool CopyImageFileToClipboard(HWND self_hwnd, const std::wstring& file_path) {
+  EnsureGdiplus();
+  Gdiplus::Bitmap bitmap(file_path.c_str());
+  if (bitmap.GetLastStatus() == Gdiplus::Ok) {
+    HBITMAP hbm = NULL;
+    bitmap.GetHBITMAP(Gdiplus::Color(255, 255, 255), &hbm);
+    if (hbm) {
+      if (OpenClipboard(self_hwnd)) {
+        EmptyClipboard();
+        SetClipboardData(CF_BITMAP, hbm);
+        CloseClipboard();
+        return true;
+      } else {
+        DeleteObject(hbm);
+      }
+    }
+  }
+
+  // Fallback to legacy BMP reading
   std::ifstream in(file_path, std::ios::binary | std::ios::ate);
   if (!in.is_open()) return false;
 
@@ -205,7 +322,7 @@ static bool CopyBmpFileToClipboard(HWND self_hwnd, const std::wstring& file_path
 }
 
 static void PasteImageIntoWindow(HWND self_hwnd, const std::wstring& file_path) {
-  if (CopyBmpFileToClipboard(self_hwnd, file_path)) {
+  if (CopyImageFileToClipboard(self_hwnd, file_path)) {
     // Identify target window and send Ctrl+V
     HWND target_hwnd = g_last_external_window;
     if (target_hwnd == NULL || !IsWindow(target_hwnd)) {
@@ -368,12 +485,22 @@ bool FlutterWindow::OnCreate() {
           return;
         }
 
+        if (call.method_name() == "getClipboardSequenceNumber") {
+          result->Success(flutter::EncodableValue(static_cast<int64_t>(GetClipboardSequenceNumber())));
+          return;
+        }
+
         if (call.method_name() == "fillTextIntoActiveWindow") {
           const auto* arguments = std::get_if<flutter::EncodableMap>(call.arguments());
           if (arguments) {
             auto text_it = arguments->find(flutter::EncodableValue("text"));
             if (text_it != arguments->end() && std::holds_alternative<std::string>(text_it->second)) {
               std::string utf8_text = std::get<std::string>(text_it->second);
+              bool restore_clipboard = false;
+              auto rest_it = arguments->find(flutter::EncodableValue("restoreClipboard"));
+              if (rest_it != arguments->end() && std::holds_alternative<bool>(rest_it->second)) {
+                restore_clipboard = std::get<bool>(rest_it->second);
+              }
               int wlen = MultiByteToWideChar(CP_UTF8, 0, utf8_text.c_str(), -1, nullptr, 0);
               if (wlen > 0) {
                 std::wstring wide_text(wlen, 0);
@@ -381,7 +508,7 @@ bool FlutterWindow::OnCreate() {
                 if (!wide_text.empty() && wide_text.back() == L'\0') {
                   wide_text.pop_back();
                 }
-                PasteTextIntoWindow(self_hwnd, wide_text);
+                PasteTextIntoWindow(self_hwnd, wide_text, restore_clipboard);
               }
               result->Success(flutter::EncodableValue(true));
               return;
@@ -460,7 +587,7 @@ bool FlutterWindow::OnCreate() {
                 if (!wide_path.empty() && wide_path.back() == L'\0') {
                   wide_path.pop_back();
                 }
-                bool ok = CopyBmpFileToClipboard(self_hwnd, wide_path);
+                bool ok = CopyImageFileToClipboard(self_hwnd, wide_path);
                 result->Success(flutter::EncodableValue(ok));
                 return;
               }

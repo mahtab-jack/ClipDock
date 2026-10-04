@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -353,34 +353,55 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
   }
 
   static const MethodChannel _nativeChannel = MethodChannel('cnote/drag_drop');
+  int? _lastClipboardSequence;
   int? _lastImageCheckTime;
 
   Future<void> _checkClipboardChanges() async {
     try {
       if (!_settings.autoCapture) return;
 
-      // 1. Check for clipboard image
+      // 1. Fast check for Windows: clipboard sequence number
       if (!kIsWeb && Platform.isWindows) {
+        final seq = await _nativeChannel.invokeMethod<int>('getClipboardSequenceNumber');
+        if (seq != null) {
+          if (_lastClipboardSequence != null && seq == _lastClipboardSequence) {
+            return;
+          }
+          _lastClipboardSequence = seq;
+        }
+
+        // Check for clipboard image
         final hasImage = await _nativeChannel.invokeMethod<bool>('hasClipboardImage') ?? false;
         if (hasImage) {
           final nowMs = DateTime.now().millisecondsSinceEpoch;
-          // Throttle repeated capture of the same image
-          if (_lastImageCheckTime == null || (nowMs - _lastImageCheckTime!) > 1500) {
+          // Throttle repeated capture
+          if (_lastImageCheckTime == null || (nowMs - _lastImageCheckTime!) > 800) {
             final imagesDir = await DatabaseService.getImagesDirectory();
             final timestamp = DateTime.now().millisecondsSinceEpoch;
-            final imageFilePath = '${imagesDir.path}\\img_$timestamp.bmp';
+            final imageFilePath = '${imagesDir.path}\\img_$timestamp.png';
             final success = await _nativeChannel.invokeMethod<bool>('saveClipboardImage', {
               'filePath': imageFilePath,
             }) ?? false;
 
             if (success && File(imageFilePath).existsSync()) {
-              final fileSize = File(imageFilePath).lengthSync();
+              final file = File(imageFilePath);
+              final fileSize = file.lengthSync();
               // Check if already captured recently with identical size
-              final exists = _clips.any((c) => c.isImage && c.imagePath != null && File(c.imagePath!).existsSync() && File(c.imagePath!).lengthSync() == fileSize);
-              if (!exists) {
+              final exists = _clips.any((c) =>
+                  c.isImage &&
+                  c.imagePath != null &&
+                  File(c.imagePath!).existsSync() &&
+                  File(c.imagePath!).lengthSync() == fileSize);
+
+              if (!exists && fileSize > 0) {
                 _lastImageCheckTime = nowMs;
                 await _autoCaptureImage(imageFilePath);
                 return;
+              } else {
+                // Critical: delete duplicate image immediately so it never leaks onto disk
+                try {
+                  file.deleteSync();
+                } catch (_) {}
               }
             }
           }
@@ -1250,14 +1271,7 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                 width: _panelWidth,
                 child: Opacity(
                   opacity: _settings.opacity.clamp(0.20, 1.0),
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.translucent,
-                    onSecondaryTap: () {
-                      if (_settings.rightClickToPaste) {
-                        _pasteFromClipboard();
-                      }
-                    },
-                    child: Container(
+                  child: Container(
                       decoration: BoxDecoration(
                         color: bgGlass,
                         borderRadius: BorderRadius.zero,
@@ -1317,6 +1331,31 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                               onTabChanged: (tab) {
                                 setState(() {
                                   _activeTab = tab;
+                                  final hasImages = _clips.any((c) {
+                                    bool matchesTab = false;
+                                    switch (tab) {
+                                      case ClipTab.all: matchesTab = !c.isDeleted && !c.isAuto; break;
+                                      case ClipTab.auto: matchesTab = !c.isDeleted && c.isAuto; break;
+                                      case ClipTab.starred: matchesTab = !c.isDeleted && c.isStarred; break;
+                                      case ClipTab.trash: matchesTab = c.isDeleted; break;
+                                    }
+                                    return matchesTab && c.isImage;
+                                  });
+                                  final hasText = _clips.any((c) {
+                                    bool matchesTab = false;
+                                    switch (tab) {
+                                      case ClipTab.all: matchesTab = !c.isDeleted && !c.isAuto; break;
+                                      case ClipTab.auto: matchesTab = !c.isDeleted && c.isAuto; break;
+                                      case ClipTab.starred: matchesTab = !c.isDeleted && c.isStarred; break;
+                                      case ClipTab.trash: matchesTab = c.isDeleted; break;
+                                    }
+                                    return matchesTab && !c.isImage;
+                                  });
+                                  if (_activeMediaFilter == MediaFilter.image && !hasImages) {
+                                    _activeMediaFilter = MediaFilter.all;
+                                  } else if (_activeMediaFilter == MediaFilter.text && !hasText) {
+                                    _activeMediaFilter = MediaFilter.all;
+                                  }
                                   _applyFilter();
                                 });
                               },
@@ -1548,13 +1587,12 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                                 ),
                               ],
                             ),
-                          ),
-                        ],
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ),
 
               // 2. Ribbon Handle (Attached directly OUTSIDE on the right side of the panel)
               if (((_isExpanded && _settings.showRibbonWhenExpanded) ||

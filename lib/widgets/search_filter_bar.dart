@@ -144,20 +144,19 @@ class SearchFilterBar extends StatelessWidget {
                       // Tab 1: Clips
                       InkWell(
                         onTap: () => onTabChanged(ClipTab.all),
-                        borderRadius: BorderRadius.circular(5),
+                        borderRadius: BorderRadius.circular(4),
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 140),
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3.5),
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
                           decoration: BoxDecoration(
-                            color: activeTab == ClipTab.all
-                                ? (isDark ? AppColors.accentSilver.withAlpha(40) : AppColors.lightHandle.withAlpha(30))
-                                : Colors.transparent,
-                            borderRadius: BorderRadius.circular(5),
-                            border: Border.all(
-                              color: activeTab == ClipTab.all
-                                  ? (isDark ? AppColors.accentSilver.withAlpha(120) : AppColors.lightHandle.withAlpha(120))
-                                  : Colors.transparent,
-                              width: 1,
+                            color: Colors.transparent,
+                            border: Border(
+                              bottom: BorderSide(
+                                color: activeTab == ClipTab.all
+                                    ? (isDark ? AppColors.accentSilver : AppColors.lightHandle)
+                                    : Colors.transparent,
+                                width: 2.0,
+                              ),
                             ),
                           ),
                           child: Text(
@@ -175,20 +174,19 @@ class SearchFilterBar extends StatelessWidget {
                       // Tab 2: Starred clips
                       InkWell(
                         onTap: () => onTabChanged(ClipTab.starred),
-                        borderRadius: BorderRadius.circular(5),
+                        borderRadius: BorderRadius.circular(4),
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 140),
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3.5),
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
                           decoration: BoxDecoration(
-                            color: activeTab == ClipTab.starred
-                                ? (isDark ? AppColors.accentAmber.withAlpha(40) : AppColors.accentAmber.withAlpha(30))
-                                : Colors.transparent,
-                            borderRadius: BorderRadius.circular(5),
-                            border: Border.all(
-                              color: activeTab == ClipTab.starred
-                                  ? AppColors.accentAmber.withAlpha(140)
-                                  : Colors.transparent,
-                              width: 1,
+                            color: Colors.transparent,
+                            border: Border(
+                              bottom: BorderSide(
+                                color: activeTab == ClipTab.starred
+                                    ? AppColors.accentAmber
+                                    : Colors.transparent,
+                                width: 2.0,
+                              ),
                             ),
                           ),
                           child: Row(
@@ -219,20 +217,19 @@ class SearchFilterBar extends StatelessWidget {
                       // Tab 3: Auto-captured clips
                       InkWell(
                         onTap: () => onTabChanged(ClipTab.auto),
-                        borderRadius: BorderRadius.circular(5),
+                        borderRadius: BorderRadius.circular(4),
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 140),
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3.5),
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
                           decoration: BoxDecoration(
-                            color: activeTab == ClipTab.auto
-                                ? (isDark ? AppColors.accentCyan.withAlpha(40) : AppColors.accentCyan.withAlpha(30))
-                                : Colors.transparent,
-                            borderRadius: BorderRadius.circular(5),
-                            border: Border.all(
-                              color: activeTab == ClipTab.auto
-                                  ? AppColors.accentCyan.withAlpha(140)
-                                  : Colors.transparent,
-                              width: 1,
+                            color: Colors.transparent,
+                            border: Border(
+                              bottom: BorderSide(
+                                color: activeTab == ClipTab.auto
+                                    ? AppColors.accentCyan
+                                    : Colors.transparent,
+                                width: 2.0,
+                              ),
                             ),
                           ),
                           child: Row(
@@ -262,20 +259,19 @@ class SearchFilterBar extends StatelessWidget {
                       // Tab 4: Trash
                       InkWell(
                         onTap: () => onTabChanged(ClipTab.trash),
-                        borderRadius: BorderRadius.circular(5),
+                        borderRadius: BorderRadius.circular(4),
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 140),
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3.5),
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
                           decoration: BoxDecoration(
-                            color: activeTab == ClipTab.trash
-                                ? (isDark ? const Color(0xFFF43F5E).withAlpha(40) : const Color(0xFFF43F5E).withAlpha(25))
-                                : Colors.transparent,
-                            borderRadius: BorderRadius.circular(5),
-                            border: Border.all(
-                              color: activeTab == ClipTab.trash
-                                  ? const Color(0xFFF43F5E).withAlpha(140)
-                                  : Colors.transparent,
-                              width: 1,
+                            color: Colors.transparent,
+                            border: Border(
+                              bottom: BorderSide(
+                                color: activeTab == ClipTab.trash
+                                    ? const Color(0xFFFB7185)
+                                    : Colors.transparent,
+                                width: 2.0,
+                              ),
                             ),
                           ),
                           child: Row(
@@ -395,8 +391,8 @@ class SearchFilterBar extends StatelessWidget {
             ],
           ),
 
-          // Sub-tabs [Text, Image] when multiple media types exist
-          if (textCount > 0 && imageCount > 0) ...[
+          // Sub-tabs [Text, Image] when multiple media types exist, or when any filter is active
+          if ((textCount > 0 && imageCount > 0) || activeMediaFilter != MediaFilter.all) ...[
             const SizedBox(height: 6),
             Row(
               children: [
@@ -405,17 +401,16 @@ class SearchFilterBar extends StatelessWidget {
                   borderRadius: BorderRadius.circular(4),
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 140),
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                     decoration: BoxDecoration(
-                      color: activeMediaFilter == MediaFilter.all
-                          ? (isDark ? AppColors.darkGlassSurface : AppColors.lightGlassSurface)
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(
-                        color: activeMediaFilter == MediaFilter.all
-                            ? (isDark ? AppColors.accentSilver.withAlpha(120) : AppColors.lightHandle.withAlpha(120))
-                            : Colors.transparent,
-                        width: 1,
+                      color: Colors.transparent,
+                      border: Border(
+                        bottom: BorderSide(
+                          color: activeMediaFilter == MediaFilter.all
+                              ? (isDark ? AppColors.accentSilver : AppColors.lightHandle)
+                              : Colors.transparent,
+                          width: 2.0,
+                        ),
                       ),
                     ),
                     child: Text(
@@ -434,17 +429,16 @@ class SearchFilterBar extends StatelessWidget {
                   borderRadius: BorderRadius.circular(4),
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 140),
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                     decoration: BoxDecoration(
-                      color: activeMediaFilter == MediaFilter.text
-                          ? (isDark ? AppColors.accentCyan.withAlpha(35) : AppColors.accentCyan.withAlpha(25))
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(
-                        color: activeMediaFilter == MediaFilter.text
-                            ? AppColors.accentCyan.withAlpha(120)
-                            : Colors.transparent,
-                        width: 1,
+                      color: Colors.transparent,
+                      border: Border(
+                        bottom: BorderSide(
+                          color: activeMediaFilter == MediaFilter.text
+                              ? (isDark ? AppColors.accentCyan : const Color(0xFF0284C7))
+                              : Colors.transparent,
+                          width: 2.0,
+                        ),
                       ),
                     ),
                     child: Row(
@@ -474,17 +468,16 @@ class SearchFilterBar extends StatelessWidget {
                   borderRadius: BorderRadius.circular(4),
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 140),
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                     decoration: BoxDecoration(
-                      color: activeMediaFilter == MediaFilter.image
-                          ? (isDark ? AppColors.accentEmerald.withAlpha(35) : AppColors.accentEmerald.withAlpha(25))
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(
-                        color: activeMediaFilter == MediaFilter.image
-                            ? AppColors.accentEmerald.withAlpha(120)
-                            : Colors.transparent,
-                        width: 1,
+                      color: Colors.transparent,
+                      border: Border(
+                        bottom: BorderSide(
+                          color: activeMediaFilter == MediaFilter.image
+                              ? AppColors.accentEmerald
+                              : Colors.transparent,
+                          width: 2.0,
+                        ),
                       ),
                     ),
                     child: Row(

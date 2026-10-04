@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -690,18 +690,9 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
                                   Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          'Auto-capture clipboard',
-                                          style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: textColor),
-                                        ),
-                                        Text(
-                                          'Automatically save copied text to the Auto tab',
-                                          style: TextStyle(fontSize: 9.5, color: subtextColor),
-                                        ),
-                                      ],
+                                    child: Text(
+                                      'Auto-capture clipboard',
+                                      style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: textColor),
                                     ),
                                   ),
                                   Switch(
@@ -734,18 +725,9 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                         children: [
                                           Expanded(
-                                            child: Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
-                                              children: [
-                                                Text(
-                                                  'Max chars (Auto-capture)',
-                                                  style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: textColor),
-                                                ),
-                                                Text(
-                                                  'Ignore copied items exceeding this character limit',
-                                                  style: TextStyle(fontSize: 9.5, color: subtextColor),
-                                                ),
-                                              ],
+                                            child: Text(
+                                              'Max chars (Auto-capture)',
+                                              style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: textColor),
                                             ),
                                           ),
                                           const SizedBox(width: 8),
@@ -830,149 +812,120 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                               ],
                               const SizedBox(height: 6),
 
-                              // Right click panel to paste toggle
+                              // Clip row lines option (1 to 6)
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          'Right-click panel to paste',
-                                          style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: textColor),
-                                        ),
-                                        Text(
-                                          'Right-clicking anywhere on the panel pastes from clipboard',
-                                          style: TextStyle(fontSize: 9.5, color: subtextColor),
-                                        ),
-                                      ],
-                                    ),
+                                  Text(
+                                    'Clip row lines',
+                                    style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: textColor),
                                   ),
-                                  Switch(
-                                    value: _currentSettings.rightClickToPaste,
-                                    activeThumbColor: isDark ? AppColors.accentCyan : const Color(0xFF0284C7),
-                                    onChanged: (val) {
-                                      _updateSettings(_currentSettings.copyWith(rightClickToPaste: val));
-                                    },
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [1, 2, 3, 4, 5, 6].map((lines) {
+                                      final isSelected = _currentSettings.displayLines == lines;
+                                      return Padding(
+                                        padding: const EdgeInsets.only(left: 4),
+                                        child: InkWell(
+                                          onTap: () {
+                                            _updateSettings(_currentSettings.copyWith(displayLines: lines));
+                                          },
+                                          borderRadius: BorderRadius.circular(4),
+                                          child: Container(
+                                            width: 24,
+                                            height: 22,
+                                            alignment: Alignment.center,
+                                            decoration: BoxDecoration(
+                                              color: isSelected
+                                                  ? (isDark ? AppColors.accentCyan.withAlpha(45) : const Color(0xFF0284C7).withAlpha(35))
+                                                  : Colors.transparent,
+                                              borderRadius: BorderRadius.circular(4),
+                                              border: Border.all(
+                                                color: isSelected
+                                                    ? (isDark ? AppColors.accentCyan : const Color(0xFF0284C7))
+                                                    : (isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle),
+                                                width: 0.8,
+                                              ),
+                                            ),
+                                            child: Text(
+                                              '$lines',
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                                                color: isSelected
+                                                    ? (isDark ? AppColors.accentCyan : const Color(0xFF0284C7))
+                                                    : textColor,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      );
+                                    }).toList(),
                                   ),
                                 ],
                               ),
-                              const SizedBox(height: 6),
+                              const SizedBox(height: 8),
 
-                              // Drag to paste toggle
+                              // Click row to fill toggle (mutually exclusive with Click row to copy)
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
                                   Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          'Drag clip to paste into apps',
-                                          style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: textColor),
-                                        ),
-                                        Text(
-                                          'Press & drag any clip onto external windows or inputs',
-                                          style: TextStyle(fontSize: 9.5, color: subtextColor),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  Switch(
-                                    value: _currentSettings.dragToPaste,
-                                    activeThumbColor: isDark ? AppColors.accentCyan : const Color(0xFF0284C7),
-                                    onChanged: (val) {
-                                      _updateSettings(_currentSettings.copyWith(dragToPaste: val));
-                                    },
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 6),
-
-                              // Click row to fill toggle (default: ON)
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          'Click row to fill',
-                                          style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: textColor),
-                                        ),
-                                        Text(
-                                          'Clicking a clip fills it directly into the active background window',
-                                          style: TextStyle(fontSize: 9.5, color: subtextColor),
-                                        ),
-                                      ],
+                                    child: Text(
+                                      'Click row to fill',
+                                      style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: textColor),
                                     ),
                                   ),
                                   Switch(
                                     value: _currentSettings.clickRowToFill,
                                     activeThumbColor: isDark ? AppColors.accentCyan : const Color(0xFF0284C7),
                                     onChanged: (val) {
-                                      _updateSettings(_currentSettings.copyWith(clickRowToFill: val));
+                                      _updateSettings(_currentSettings.copyWith(
+                                        clickRowToFill: val,
+                                        clickRowToCopy: val ? false : _currentSettings.clickRowToCopy,
+                                      ));
                                     },
                                   ),
                                 ],
                               ),
                               const SizedBox(height: 6),
 
-                              // Click row to copy toggle (default: OFF)
+                              // Click row to copy toggle (mutually exclusive with Click row to fill)
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
                                   Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          'Click row to copy',
-                                          style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: textColor),
-                                        ),
-                                        Text(
-                                          'Clicking anywhere on a clip card copies it',
-                                          style: TextStyle(fontSize: 9.5, color: subtextColor),
-                                        ),
-                                      ],
+                                    child: Text(
+                                      'Click row to copy',
+                                      style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: textColor),
                                     ),
                                   ),
                                   Switch(
                                     value: _currentSettings.clickRowToCopy,
                                     activeThumbColor: isDark ? AppColors.accentCyan : const Color(0xFF0284C7),
                                     onChanged: (val) {
-                                      _updateSettings(_currentSettings.copyWith(clickRowToCopy: val));
+                                      _updateSettings(_currentSettings.copyWith(
+                                        clickRowToCopy: val,
+                                        clickRowToFill: val ? false : _currentSettings.clickRowToFill,
+                                      ));
                                     },
                                   ),
                                 ],
                               ),
                               const SizedBox(height: 6),
 
-                              // Show copy button toggle (Only hidable if clickRowToCopy is enabled)
+                              // Show copy button toggle
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
                                   Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          'Show copy button',
-                                          style: TextStyle(
-                                            fontSize: 10.5,
-                                            fontWeight: FontWeight.w600,
-                                            color: _currentSettings.clickRowToCopy ? textColor : subtextColor,
-                                          ),
-                                        ),
-                                        Text(
-                                          _currentSettings.clickRowToCopy
-                                              ? 'Show or hide the Copy button on each clip card'
-                                              : 'Always enabled when "Click row to copy" is off',
-                                            style: TextStyle(fontSize: 9.5, color: subtextColor),
-                                        ),
-                                      ],
+                                    child: Text(
+                                      'Show copy button',
+                                      style: TextStyle(
+                                        fontSize: 10.5,
+                                        fontWeight: FontWeight.w600,
+                                        color: _currentSettings.clickRowToCopy ? textColor : subtextColor,
+                                      ),
                                     ),
                                   ),
                                   Switch(
@@ -1015,7 +968,7 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                                 textColor: textColor,
                                 subtextColor: subtextColor,
                                 title: 'Visible Position (Open)',
-                                subtitle: 'Shift dock left or right when open and visible',
+                                subtitle: '',
                                 value: _currentSettings.edgeOffsetVisible,
                                 onChanged: (val) {
                                   _updateSettings(_currentSettings.copyWith(edgeOffsetVisible: val));
@@ -1040,7 +993,7 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                                 textColor: textColor,
                                 subtextColor: subtextColor,
                                 title: 'Hidden Position (Closed)',
-                                subtitle: 'Shift ribbon trigger left or right when closed and hidden',
+                                subtitle: '',
                                 value: _currentSettings.edgeOffsetHidden,
                                 onChanged: (val) {
                                   _updateSettings(_currentSettings.copyWith(edgeOffsetHidden: val));
@@ -1256,18 +1209,9 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                               ),
                               const SizedBox(width: 8),
                               Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Launch on Windows Startup',
-                                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: textColor),
-                                    ),
-                                    Text(
-                                      'Start in system tray on boot',
-                                      style: TextStyle(fontSize: 9.5, color: subtextColor),
-                                    ),
-                                  ],
+                                child: Text(
+                                  'Launch on Windows Startup',
+                                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: textColor),
                                 ),
                               ),
                               if (_isLoadingStartup)

@@ -100,6 +100,7 @@ class _ClipCardState extends State<ClipCard> {
   }
 
   void _fillIntoActiveWindow() {
+    final shouldAlsoCopy = widget.clickRowToCopy;
     if (widget.item.isImage && widget.item.imagePath != null) {
       try {
         _dragDropChannel.invokeMethod('fillImageIntoActiveWindow', {
@@ -108,27 +109,32 @@ class _ClipCardState extends State<ClipCard> {
       } catch (_) {}
       widget.onNotify?.call('Filled image #${widget.serialNo} into active window');
     } else {
-      Clipboard.setData(ClipboardData(text: widget.item.content));
+      if (shouldAlsoCopy) {
+        Clipboard.setData(ClipboardData(text: widget.item.content));
+      }
       try {
         _dragDropChannel.invokeMethod('fillTextIntoActiveWindow', {
           'text': widget.item.content,
+          'restoreClipboard': !shouldAlsoCopy,
         });
       } catch (_) {}
       widget.onNotify?.call('Filled clip #${widget.serialNo} into active window');
     }
 
-    _copiedResetTimer?.cancel();
-    setState(() {
-      _isCopied = true;
-    });
+    if (shouldAlsoCopy) {
+      _copiedResetTimer?.cancel();
+      setState(() {
+        _isCopied = true;
+      });
 
-    _copiedResetTimer = Timer(const Duration(milliseconds: 1400), () {
-      if (mounted) {
-        setState(() {
-          _isCopied = false;
-        });
-      }
-    });
+      _copiedResetTimer = Timer(const Duration(milliseconds: 1400), () {
+        if (mounted) {
+          setState(() {
+            _isCopied = false;
+          });
+        }
+      });
+    }
   }
 
   void _handleRowTap() {
@@ -138,16 +144,6 @@ class _ClipCardState extends State<ClipCard> {
     } else if (widget.clickRowToCopy) {
       _copyToClipboard();
     }
-  }
-
-  void _startNativeDrag() {
-    if (!widget.dragToPaste || widget.isTrash) return;
-    try {
-      Clipboard.setData(ClipboardData(text: widget.item.content));
-      _dragDropChannel.invokeMethod('startDragText', {
-        'text': widget.item.content,
-      });
-    } catch (_) {}
   }
 
   @override
@@ -559,79 +555,6 @@ class _ClipCardState extends State<ClipCard> {
     ),
   );
 
-    if (!widget.dragToPaste || widget.isTrash) {
-      return cardContent;
-    }
-
-    return Draggable<ClipItem>(
-      data: widget.item,
-      onDragStarted: _startNativeDrag,
-      feedback: Material(
-        color: Colors.transparent,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF0F172A).withAlpha(240) : Colors.white.withAlpha(240),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: isDark ? AppColors.accentCyan : const Color(0xFF0284C7),
-              width: 1.5,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withAlpha(90),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.drag_indicator_rounded,
-                size: 15,
-                color: isDark ? AppColors.accentCyan : const Color(0xFF0284C7),
-              ),
-              const SizedBox(width: 6),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 160),
-                child: Text(
-                  widget.item.title.isNotEmpty ? widget.item.title : widget.item.content,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: isDark ? Colors.white : Colors.black87,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                decoration: BoxDecoration(
-                  color: isDark ? Colors.white12 : Colors.black12,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text(
-                  '${widget.item.content.length} chars',
-                  style: TextStyle(
-                    fontSize: 9.5,
-                    fontWeight: FontWeight.w600,
-                    color: isDark ? AppColors.accentSilver : AppColors.lightTextSecondary,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-      childWhenDragging: Opacity(
-        opacity: 0.35,
-        child: cardContent,
-      ),
-      child: cardContent,
-    );
+    return cardContent;
   }
 }
