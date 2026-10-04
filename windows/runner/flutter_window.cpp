@@ -375,57 +375,6 @@ static void PasteImageIntoWindow(HWND self_hwnd, const std::wstring& file_path) 
   }
 }
 
-typedef enum _ACCENT_STATE {
-    ACCENT_DISABLED = 0,
-    ACCENT_ENABLE_GRADIENT = 1,
-    ACCENT_ENABLE_TRANSPARENTGRADIENT = 2,
-    ACCENT_ENABLE_BLURBEHIND = 3,
-    ACCENT_ENABLE_ACRYLICBLURBEHIND = 4,
-    ACCENT_ENABLE_HOSTBACKDROP = 5,
-    ACCENT_INVALID_STATE = 6
-} ACCENT_STATE;
-
-typedef struct _ACCENT_POLICY {
-    ACCENT_STATE AccentState;
-    DWORD AccentFlags;
-    DWORD GradientColor;
-    DWORD AnimationId;
-} ACCENT_POLICY;
-
-typedef struct _WINDOWCOMPOSITIONATTRIBDATA {
-    DWORD Attrib;
-    PVOID pvData;
-    SIZE_T cbData;
-} WINDOWCOMPOSITIONATTRIBDATA;
-
-typedef BOOL(WINAPI* pfnSetWindowCompositionAttribute)(HWND, WINDOWCOMPOSITIONATTRIBDATA*);
-
-static void SetNativeWindowBlur(HWND hwnd, bool enable, DWORD tintColorABGR = 0x01000000) {
-  HMODULE user32 = GetModuleHandleA("user32.dll");
-  if (!user32) {
-    user32 = LoadLibraryA("user32.dll");
-  }
-  if (user32) {
-    pfnSetWindowCompositionAttribute setWindowCompositionAttribute =
-        (pfnSetWindowCompositionAttribute)GetProcAddress(user32, "SetWindowCompositionAttribute");
-    if (setWindowCompositionAttribute) {
-      ACCENT_POLICY policy = {};
-      if (enable) {
-        policy.AccentState = ACCENT_ENABLE_ACRYLICBLURBEHIND;
-        policy.AccentFlags = 0; // 0 = no window borders (2 draws a top border)
-        policy.GradientColor = tintColorABGR;
-      } else {
-        policy.AccentState = ACCENT_DISABLED;
-      }
-      WINDOWCOMPOSITIONATTRIBDATA data = {};
-      data.Attrib = 19; // WCA_ACCENT_POLICY
-      data.pvData = &policy;
-      data.cbData = sizeof(policy);
-      setWindowCompositionAttribute(hwnd, &data);
-    }
-  }
-}
-
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
     : project_(project) {}
 
@@ -453,32 +402,9 @@ bool FlutterWindow::OnCreate() {
 
   HWND self_hwnd = GetHandle();
 
-  // Enable initial blur behind window for transparent frosted glass effect
-  SetNativeWindowBlur(self_hwnd, true);
-
   drag_drop_channel_->SetMethodCallHandler(
       [self_hwnd](const flutter::MethodCall<flutter::EncodableValue>& call,
                   std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
-        if (call.method_name() == "setWindowBlur") {
-          const auto* arguments = std::get_if<flutter::EncodableMap>(call.arguments());
-          bool enable = true;
-          DWORD tintColor = 0x01000000;
-          if (arguments) {
-            auto blur_it = arguments->find(flutter::EncodableValue("enable"));
-            if (blur_it != arguments->end() && std::holds_alternative<bool>(blur_it->second)) {
-              enable = std::get<bool>(blur_it->second);
-            }
-            auto tint_it = arguments->find(flutter::EncodableValue("tintColor"));
-            if (tint_it != arguments->end() && std::holds_alternative<int32_t>(tint_it->second)) {
-              tintColor = static_cast<DWORD>(std::get<int32_t>(tint_it->second));
-            } else if (tint_it != arguments->end() && std::holds_alternative<int64_t>(tint_it->second)) {
-              tintColor = static_cast<DWORD>(std::get<int64_t>(tint_it->second));
-            }
-          }
-          SetNativeWindowBlur(self_hwnd, enable, tintColor);
-          result->Success(flutter::EncodableValue(true));
-          return;
-        }
         if (call.method_name() == "captureActiveWindow") {
           RecordForegroundWindow(self_hwnd);
           result->Success(flutter::EncodableValue(true));

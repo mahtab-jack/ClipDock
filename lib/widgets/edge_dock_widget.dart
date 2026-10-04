@@ -152,25 +152,7 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
   }
 
   Future<void> _syncWindowBlur() async {
-    if (!kIsWeb && Platform.isWindows) {
-      try {
-        const channel = MethodChannel('cnote/drag_drop');
-        final bool enableBlur = _settings.blur > 0 || _settings.transparency > 0;
-        final bool isDark = _settings.isDark;
-        // Keep a protective acrylic tint floor so frosted blur always retains contrast under any window
-        final int minTint = isDark ? 45 : 55;
-        final int maxTint = 200;
-        final int tintAlpha = (maxTint - (_settings.transparency * (maxTint - minTint))).round().clamp(minTint, maxTint);
-        // ABGR format: 0xAABBGGRR
-        final int tintColor = isDark
-            ? (tintAlpha << 24) | 0x00000000  // black tint
-            : (tintAlpha << 24) | 0x00FFFFFF; // pure white tint
-        await channel.invokeMethod('setWindowBlur', {
-          'enable': enableBlur,
-          'tintColor': tintColor,
-        });
-      } catch (_) {}
-    }
+    // Native window blur removed to prevent Windows DWM white border artifacts
   }
 
   Future<void> _persistClips() async {

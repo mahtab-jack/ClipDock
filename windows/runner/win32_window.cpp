@@ -148,7 +148,7 @@ bool Win32Window::Create(const std::wstring& title,
 
   HWND window = CreateWindowEx(
       WS_EX_TOOLWINDOW,
-      window_class, title.c_str(), WS_POPUP | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
+      window_class, title.c_str(), WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
       Scale(origin.x, scale_factor), Scale(origin.y, scale_factor),
       Scale(size.width, scale_factor), Scale(size.height, scale_factor),
       nullptr, nullptr, GetModuleHandle(nullptr), this);
