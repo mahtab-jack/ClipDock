@@ -412,7 +412,7 @@ static void SetNativeWindowBlur(HWND hwnd, bool enable, DWORD tintColorABGR = 0x
       ACCENT_POLICY policy = {};
       if (enable) {
         policy.AccentState = ACCENT_ENABLE_ACRYLICBLURBEHIND;
-        policy.AccentFlags = 2;
+        policy.AccentFlags = 0; // 0 = no window borders (2 draws a top border)
         policy.GradientColor = tintColorABGR;
       } else {
         policy.AccentState = ACCENT_DISABLED;
