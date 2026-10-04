@@ -579,6 +579,22 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     RecordForegroundWindow(hwnd);
   }
 
+  // Eliminate Windows DWM 1-pixel top non-client border line completely
+  if (message == WM_NCCALCSIZE) {
+    if (wparam == TRUE) {
+      auto params = reinterpret_cast<NCCALCSIZE_PARAMS*>(lparam);
+      params->rgrc[0].top -= 1;
+      return 0;
+    }
+    return 0;
+  }
+  if (message == WM_NCPAINT) {
+    return 0;
+  }
+  if (message == WM_NCACTIVATE) {
+    return TRUE;
+  }
+
   // Give Flutter, including plugins, an opportunity to handle window messages.
   if (flutter_controller_) {
     std::optional<LRESULT> result =

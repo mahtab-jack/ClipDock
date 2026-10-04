@@ -199,10 +199,16 @@ Win32Window::MessageHandler(HWND hwnd,
   switch (message) {
     case WM_NCCALCSIZE: {
       if (wparam == TRUE) {
+        auto params = reinterpret_cast<NCCALCSIZE_PARAMS*>(lparam);
+        params->rgrc[0].top -= 1;
         return 0;
       }
-      break;
+      return 0;
     }
+    case WM_NCPAINT:
+      return 0;
+    case WM_NCACTIVATE:
+      return TRUE;
 
     case WM_DESTROY:
       window_handle_ = nullptr;
