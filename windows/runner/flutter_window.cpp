@@ -10,6 +10,25 @@
 #include <vector>
 #include <gdiplus.h>
 #pragma comment(lib, "gdiplus.lib")
+#pragma comment(lib, "dwmapi.lib")
+
+static void SetNativeBackdrop(HWND hwnd, const std::string& style, bool is_dark) {
+  if (hwnd == NULL || !IsWindow(hwnd)) return;
+
+  // DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+  BOOL dark_val = is_dark ? TRUE : FALSE;
+  DwmSetWindowAttribute(hwnd, 20, &dark_val, sizeof(dark_val));
+
+  // DWMWA_SYSTEMBACKDROP_TYPE = 38
+  // 1 = DWMSBT_NONE, 2 = DWMSBT_MAINWINDOW (Mica), 3 = DWMSBT_TRANSIENTWINDOW (Acrylic)
+  int backdrop_type = 1;
+  if (style == "acrylic") {
+    backdrop_type = 3;
+  } else if (style == "mica") {
+    backdrop_type = 2;
+  }
+  DwmSetWindowAttribute(hwnd, 38, &backdrop_type, sizeof(backdrop_type));
+}
 
 static ULONG_PTR g_gdiplusToken = 0;
 static void EnsureGdiplus() {
@@ -405,6 +424,25 @@ bool FlutterWindow::OnCreate() {
   drag_drop_channel_->SetMethodCallHandler(
       [self_hwnd](const flutter::MethodCall<flutter::EncodableValue>& call,
                   std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
+        if (call.method_name() == "setWindowBackdrop") {
+          std::string style = "default";
+          bool is_dark = true;
+          const auto* arguments = std::get_if<flutter::EncodableMap>(call.arguments());
+          if (arguments) {
+            auto style_it = arguments->find(flutter::EncodableValue("style"));
+            if (style_it != arguments->end() && std::holds_alternative<std::string>(style_it->second)) {
+              style = std::get<std::string>(style_it->second);
+            }
+            auto dark_it = arguments->find(flutter::EncodableValue("isDark"));
+            if (dark_it != arguments->end() && std::holds_alternative<bool>(dark_it->second)) {
+              is_dark = std::get<bool>(dark_it->second);
+            }
+          }
+          SetNativeBackdrop(self_hwnd, style, is_dark);
+          result->Success(flutter::EncodableValue(true));
+          return;
+        }
+
         if (call.method_name() == "captureActiveWindow") {
           RecordForegroundWindow(self_hwnd);
           result->Success(flutter::EncodableValue(true));

@@ -94,6 +94,7 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
         });
         _persistSettings();
       }
+      _syncWindowBlur();
     }
   }
 
@@ -152,7 +153,15 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
   }
 
   Future<void> _syncWindowBlur() async {
-    // Native window blur removed to prevent Windows DWM white border artifacts
+    if (!kIsWeb && Platform.isWindows) {
+      try {
+        const channel = MethodChannel('cnote/drag_drop');
+        await channel.invokeMethod('setWindowBackdrop', {
+          'style': _settings.materialStyle,
+          'isDark': widget.isDark,
+        });
+      } catch (_) {}
+    }
   }
 
   Future<void> _persistClips() async {
@@ -1247,16 +1256,19 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
   @override
   Widget build(BuildContext context) {
     final isDark = widget.isDark;
+    final isAcrylic = _settings.materialStyle == 'acrylic';
 
-    final bgBase = isDark
-        ? const Color(0xFF000000)
-        : const Color(0xFFFFFFFF);
-    // When transparency > 0, let the Windows acrylic show through
-    // Maintain a protective glass tint floor so text remains crisp and readable across any background
-    final int minAlpha = isDark ? 70 : 85;
-    final int maxAlpha = 255;
-    final int bgAlpha = (maxAlpha - (_settings.transparency * (maxAlpha - minAlpha))).round().clamp(minAlpha, maxAlpha);
-    final bgGlass = bgBase.withAlpha(bgAlpha);
+    // In Default (Solid Matte) mode, the background is 100% solid, guaranteeing ZERO
+    // bleed-through or collision with any background window (like Telegram).
+    // In Acrylic mode, a balanced translucent tint is applied, allowing native Windows
+    // desktop blur to show through while keeping text completely crisp.
+    final Color bgGlass = isAcrylic
+        ? (isDark ? const Color(0xB80F172A) : const Color(0xD9FFFFFF))
+        : (isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC));
+
+    final Color bottomBarBg = isAcrylic
+        ? (isDark ? const Color(0xCC0B1120) : const Color(0xE6F1F5F9))
+        : (isDark ? const Color(0xFF0B1120) : const Color(0xFFF1F5F9));
 
     final handleColor = _settings.ribbonColor.withAlpha((_settings.ribbonOpacity * 255).round().clamp(0, 255));
 
@@ -1282,9 +1294,7 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                 top: 0,
                 bottom: 0,
                 width: _panelWidth,
-                child: Opacity(
-                  opacity: _settings.opacity.clamp(0.20, 1.0),
-                  child: Container(
+                child: Container(
                       decoration: BoxDecoration(
                         color: bgGlass,
                         borderRadius: BorderRadius.zero,
@@ -1488,7 +1498,7 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                               height: 38,
                               padding: const EdgeInsets.symmetric(horizontal: 8),
                               decoration: BoxDecoration(
-                                color: isDark ? const Color(0xFF000000).withAlpha(bgAlpha.clamp(90, 240)) : const Color(0xFFFFFFFF).withAlpha(bgAlpha.clamp(120, 240)),
+                                color: bottomBarBg,
                                 border: Border(
                                   top: BorderSide(
                                     color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle,
@@ -1605,7 +1615,6 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                         ),
                       ),
                     ),
-                  ),
 
               // 2. Ribbon Handle (Attached directly OUTSIDE on the right side of the panel)
               if (((_isExpanded && _settings.showRibbonWhenExpanded) ||

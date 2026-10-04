@@ -4,6 +4,7 @@ class DockSettings {
   double opacity; // 0.20 to 1.0 (default 1.0: 100% opacity)
   double transparency; // 0.0 to 1.0 (default 0.30: 30% background transparency)
   double blur; // 0.0 to 30.0 (default 30.0: 30px max blur)
+  String materialStyle; // 'default' (Solid Matte) or 'acrylic' (Native Windows Acrylic Blur)
   bool showRibbonWhenCollapsed; // default: true
   bool showRibbonWhenExpanded; // default: true
   double ribbonWidth; // 0.0 to 24.0
@@ -35,6 +36,7 @@ class DockSettings {
     this.opacity = 1.0,
     this.transparency = 0.30,
     this.blur = 30.0,
+    this.materialStyle = 'default',
     this.showRibbonWhenCollapsed = true,
     this.showRibbonWhenExpanded = true,
     this.ribbonWidth = 24.0,
@@ -67,6 +69,7 @@ class DockSettings {
     double? opacity,
     double? transparency,
     double? blur,
+    String? materialStyle,
     bool? showRibbonWhenCollapsed,
     bool? showRibbonWhenExpanded,
     double? ribbonWidth,
@@ -98,6 +101,7 @@ class DockSettings {
       opacity: opacity ?? this.opacity,
       transparency: transparency ?? this.transparency,
       blur: blur ?? this.blur,
+      materialStyle: materialStyle ?? this.materialStyle,
       showRibbonWhenCollapsed: showRibbonWhenCollapsed ?? this.showRibbonWhenCollapsed,
       showRibbonWhenExpanded: showRibbonWhenExpanded ?? this.showRibbonWhenExpanded,
       ribbonWidth: ribbonWidth ?? this.ribbonWidth,
@@ -132,6 +136,7 @@ class DockSettings {
       'opacity': opacity,
       'transparency': transparency,
       'blur': blur,
+      'materialStyle': materialStyle,
       'showRibbonWhenCollapsed': showRibbonWhenCollapsed,
       'showRibbonWhenExpanded': showRibbonWhenExpanded,
       'ribbonWidth': ribbonWidth,
@@ -171,6 +176,7 @@ class DockSettings {
       opacity: (json['opacity'] as num?)?.toDouble() ?? 1.0,
       transparency: (json['transparency'] as num?)?.toDouble() ?? 0.30,
       blur: (json['blur'] as num?)?.toDouble() ?? 30.0,
+      materialStyle: json['materialStyle'] as String? ?? 'default',
       showRibbonWhenCollapsed: json['showRibbonWhenCollapsed'] as bool? ?? true,
       showRibbonWhenExpanded: json['showRibbonWhenExpanded'] as bool? ?? true,
       ribbonWidth: (json['ribbonWidth'] as num?)?.toDouble() ?? 24.0,

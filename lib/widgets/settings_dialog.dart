@@ -428,84 +428,63 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                               ),
                               const SizedBox(height: 8),
 
-                              // Opacity / Transparency Slider
-                              // Panel Opacity Slider
+                              // Panel Material Style Dropdown
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Text('Panel Opacity', style: TextStyle(fontSize: 10.5, color: subtextColor)),
-                                  Text('${(_currentSettings.opacity * 100).round()}%',
-                                      style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: textColor)),
+                                  Text('Panel Material Style', style: TextStyle(fontSize: 10.5, color: subtextColor)),
+                                  Text(
+                                    _currentSettings.materialStyle == 'acrylic' ? 'Acrylic' : 'Default',
+                                    style: TextStyle(
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: _currentSettings.materialStyle == 'acrylic'
+                                          ? (isDark ? AppColors.accentCyan : const Color(0xFF0284C7))
+                                          : textColor,
+                                    ),
+                                  ),
                                 ],
                               ),
-                              SliderTheme(
-                                data: SliderTheme.of(context).copyWith(
-                                  trackHeight: 3,
-                                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                              const SizedBox(height: 6),
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: isDark ? AppColors.darkGlassSurface : AppColors.lightGlassSurface,
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle),
                                 ),
-                                child: Slider(
-                                  value: _currentSettings.opacity,
-                                  min: 0.20,
-                                  max: 1.0,
-                                  divisions: 16,
-                                  activeColor: isDark ? AppColors.accentSilver : AppColors.lightHandle,
-                                  onChanged: (val) {
-                                    _updateSettings(_currentSettings.copyWith(opacity: val));
-                                  },
-                                ),
-                              ),
-
-                              // Glass Transparency Slider
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text('Glass Transparency', style: TextStyle(fontSize: 10.5, color: subtextColor)),
-                                  Text('${(_currentSettings.transparency * 100).round()}%',
-                                      style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: textColor)),
-                                ],
-                              ),
-                              SliderTheme(
-                                data: SliderTheme.of(context).copyWith(
-                                  trackHeight: 3,
-                                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                                ),
-                                child: Slider(
-                                  value: _currentSettings.transparency,
-                                  min: 0.0,
-                                  max: 1.0,
-                                  divisions: 20,
-                                  activeColor: isDark ? AppColors.accentSilver : AppColors.lightHandle,
-                                  onChanged: (val) {
-                                    _updateSettings(_currentSettings.copyWith(transparency: val));
-                                  },
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                                child: DropdownButtonHideUnderline(
+                                  child: DropdownButton<String>(
+                                    value: _currentSettings.materialStyle,
+                                    isExpanded: true,
+                                    dropdownColor: isDark ? const Color(0xFF1E293B) : const Color(0xFFFFFFFF),
+                                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: textColor),
+                                    icon: Icon(Icons.keyboard_arrow_down_rounded, size: 16, color: subtextColor),
+                                    items: [
+                                      DropdownMenuItem(
+                                        value: 'default',
+                                        child: Text(
+                                          'Default (Solid Matte - All Windows)',
+                                          style: TextStyle(fontSize: 11, color: textColor),
+                                        ),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: 'acrylic',
+                                        child: Text(
+                                          'Acrylic (Native Desktop Blur - Win 11)',
+                                          style: TextStyle(fontSize: 11, color: textColor),
+                                        ),
+                                      ),
+                                    ],
+                                    onChanged: (val) {
+                                      if (val != null) {
+                                        _updateSettings(_currentSettings.copyWith(materialStyle: val));
+                                      }
+                                    },
+                                  ),
                                 ),
                               ),
-
-                              // Panel Blur Slider
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text('Panel Blur', style: TextStyle(fontSize: 10.5, color: subtextColor)),
-                                  Text('${_currentSettings.blur.round()} px',
-                                      style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: textColor)),
-                                ],
-                              ),
-                              SliderTheme(
-                                data: SliderTheme.of(context).copyWith(
-                                  trackHeight: 3,
-                                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                                ),
-                                child: Slider(
-                                  value: _currentSettings.blur,
-                                  min: 0.0,
-                                  max: 30.0,
-                                  divisions: 30,
-                                  activeColor: isDark ? AppColors.accentSilver : AppColors.lightHandle,
-                                  onChanged: (val) {
-                                    _updateSettings(_currentSettings.copyWith(blur: val));
-                                  },
-                                ),
-                              ),
+                              const SizedBox(height: 12),
 
                               // Panel Width Slider
                               Row(

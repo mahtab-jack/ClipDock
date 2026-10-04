@@ -11,7 +11,7 @@ class AppColors {
   static const Color darkTextPrimary = Color(0xFFFFFFFF); // Pure white high-contrast
   static const Color darkTextSecondary = Color(0xFFA3A3A3); // Crisp silvery gray
   static const Color darkHandle = Color(0xFFE5E5E5); // Silver handle
-  static const Color silverGlow = Color(0xFFFFFFFF);
+  static const Color silverGlow = Color(0x66FFFFFF);
 
   // Crisp High-Contrast Light palette (Frosted Glass & Deep Charcoal)
   static const Color lightGlassBg = Color(0xD9FFFFFF); // Frosted crisp white base
