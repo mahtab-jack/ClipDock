@@ -3,9 +3,9 @@ import 'package:flutter/material.dart';
 class AppColors {
   // Pure AMOLED Dark Palette (True Pitch Black)
   static const Color darkGlassBg = Color(0x80000000); // Pure AMOLED black glass
-  static const Color darkGlassSurface = Color(0x66121212); // Pure AMOLED surface
-  static const Color darkGlassCard = Color(0x59181818); // Deep AMOLED card
-  static const Color darkGlassCardHover = Color(0x8C262626); // Hover state
+  static const Color darkGlassSurface = Color(0x99121212); // AMOLED surface (~60%)
+  static const Color darkGlassCard = Color(0x80181818); // Deep AMOLED protective card (~50%)
+  static const Color darkGlassCardHover = Color(0xB3262626); // Hover state (~70%)
   static const Color darkBorder = Color(0x66404040); // Crisp dark border
   static const Color darkBorderSubtle = Color(0x332E2E2E); // Subtle separator
   static const Color darkTextPrimary = Color(0xFFFFFFFF); // Pure white high-contrast
@@ -13,13 +13,13 @@ class AppColors {
   static const Color darkHandle = Color(0xFFE5E5E5); // Silver handle
   static const Color silverGlow = Color(0xFFFFFFFF);
 
-  // Crisp High-Contrast Light palette (Pure White & Deep Charcoal)
-  static const Color lightGlassBg = Color(0xFFFFFFFF); // Pure crisp white
-  static const Color lightGlassSurface = Color(0xFFFFFFFF);
-  static const Color lightGlassCard = Color(0xFFFFFFFF);
-  static const Color lightGlassCardHover = Color(0xFFF1F5F9);
-  static const Color lightBorder = Color(0xFFCBD5E1); // Crisp distinct border
-  static const Color lightBorderSubtle = Color(0xFFE2E8F0); // Clean visible outline
+  // Crisp High-Contrast Light palette (Frosted Glass & Deep Charcoal)
+  static const Color lightGlassBg = Color(0xD9FFFFFF); // Frosted crisp white base
+  static const Color lightGlassSurface = Color(0xB8FFFFFF); // Translucent search & surface (~72%)
+  static const Color lightGlassCard = Color(0xA6FFFFFF); // Frosted translucent glass card (~65%)
+  static const Color lightGlassCardHover = Color(0xEBFFFFFF); // Elevated frosted hover card (~92%)
+  static const Color lightBorder = Color(0x6694A3B8); // Crisp distinct translucent border
+  static const Color lightBorderSubtle = Color(0x3894A3B8); // Clean subtle glass outline
   static const Color lightTextPrimary = Color(0xFF0F172A); // Rich deep charcoal black
   static const Color lightTextSecondary = Color(0xFF334155); // High-contrast dark slate
   static const Color lightHandle = Color(0xFF475569);

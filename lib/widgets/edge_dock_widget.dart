@@ -156,10 +156,11 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
       try {
         const channel = MethodChannel('cnote/drag_drop');
         final bool enableBlur = _settings.blur > 0 || _settings.transparency > 0;
-        // Compute ABGR tint color for Windows Acrylic API
-        // Higher transparency = lower alpha on tint = more see-through
-        final int tintAlpha = ((1.0 - _settings.transparency) * 200).round().clamp(0, 200);
         final bool isDark = _settings.isDark;
+        // Keep a protective acrylic tint floor so frosted blur always retains contrast under any window
+        final int minTint = isDark ? 45 : 55;
+        final int maxTint = 200;
+        final int tintAlpha = (maxTint - (_settings.transparency * (maxTint - minTint))).round().clamp(minTint, maxTint);
         // ABGR format: 0xAABBGGRR
         final int tintColor = isDark
             ? (tintAlpha << 24) | 0x00000000  // black tint
@@ -1269,8 +1270,10 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         ? const Color(0xFF000000)
         : const Color(0xFFFFFFFF);
     // When transparency > 0, let the Windows acrylic show through
-    // transparency 0 = fully opaque panel, transparency 1 = fully clear glass
-    final int bgAlpha = ((1.0 - _settings.transparency) * 255).round().clamp(0, 255);
+    // Maintain a protective glass tint floor so text remains crisp and readable across any background
+    final int minAlpha = isDark ? 70 : 85;
+    final int maxAlpha = 255;
+    final int bgAlpha = (maxAlpha - (_settings.transparency * (maxAlpha - minAlpha))).round().clamp(minAlpha, maxAlpha);
     final bgGlass = bgBase.withAlpha(bgAlpha);
 
     final handleColor = _settings.ribbonColor.withAlpha((_settings.ribbonOpacity * 255).round().clamp(0, 255));
@@ -1503,9 +1506,7 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                               height: 38,
                               padding: const EdgeInsets.symmetric(horizontal: 8),
                               decoration: BoxDecoration(
-                                color: isDark
-                                    ? const Color(0xFF000000).withAlpha(230)
-                                    : const Color(0xFFFFFFFF),
+                                color: isDark ? const Color(0xFF000000).withAlpha(bgAlpha.clamp(90, 240)) : const Color(0xFFFFFFFF).withAlpha(bgAlpha.clamp(120, 240)),
                                 border: Border(
                                   top: BorderSide(
                                     color: isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle,
