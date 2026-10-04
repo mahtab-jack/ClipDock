@@ -102,7 +102,88 @@ static void RecordForegroundWindow(HWND self_hwnd) {
   }
 }
 
-static bool PasteTextIntoWindow(HWND self_hwnd, const std::wstring& wide_text, bool restore_clipboard = false) {
+static std::string GetWindowApplicationName(HWND hwnd) {
+  if (hwnd == NULL || !IsWindow(hwnd)) return "";
+
+  DWORD pid = 0;
+  GetWindowThreadProcessId(hwnd, &pid);
+  if (pid == 0) return "";
+
+  HANDLE hProc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+  if (!hProc) return "";
+
+  wchar_t full_path[MAX_PATH] = {};
+  DWORD size = MAX_PATH;
+  if (!QueryFullProcessImageNameW(hProc, 0, full_path, &size)) {
+    CloseHandle(hProc);
+    return "";
+  }
+  CloseHandle(hProc);
+
+  // Extract filename from path
+  std::wstring path_str(full_path);
+  size_t last_slash = path_str.find_last_of(L"\\/");
+  std::wstring file_name = (last_slash != std::wstring::npos) ? path_str.substr(last_slash + 1) : path_str;
+
+  // Remove .exe extension
+  size_t dot_pos = file_name.find_last_of(L'.');
+  if (dot_pos != std::wstring::npos) {
+    file_name = file_name.substr(0, dot_pos);
+  }
+
+  // Convert to lowercase for comparison
+  std::wstring lower_name = file_name;
+  for (auto& ch : lower_name) {
+    ch = towlower(ch);
+  }
+
+  if (lower_name == L"chrome") return "Chrome";
+  if (lower_name == L"msedge") return "Edge";
+  if (lower_name == L"firefox") return "Firefox";
+  if (lower_name == L"brave") return "Brave";
+  if (lower_name == L"opera") return "Opera";
+  if (lower_name == L"telegram") return "Telegram";
+  if (lower_name == L"discord") return "Discord";
+  if (lower_name == L"slack") return "Slack";
+  if (lower_name == L"whatsapp") return "WhatsApp";
+  if (lower_name == L"code") return "VS Code";
+  if (lower_name == L"notepad") return "Notepad";
+  if (lower_name == L"notepad++") return "Notepad++";
+  if (lower_name == L"sublime_text") return "Sublime Text";
+  if (lower_name == L"windowsterminal") return "Terminal";
+  if (lower_name == L"cmd") return "Command Prompt";
+  if (lower_name == L"powershell" || lower_name == L"pwsh") return "PowerShell";
+  if (lower_name == L"explorer") return "File Explorer";
+  if (lower_name == L"winword") return "Word";
+  if (lower_name == L"excel") return "Excel";
+  if (lower_name == L"powerpnt") return "PowerPoint";
+  if (lower_name == L"outlook") return "Outlook";
+  if (lower_name == L"teams" || lower_name == L"ms-teams") return "Teams";
+  if (lower_name == L"devenv") return "Visual Studio";
+  if (lower_name == L"rider64") return "Rider";
+  if (lower_name == L"idea64") return "IntelliJ IDEA";
+  if (lower_name == L"pycharm64") return "PyCharm";
+  if (lower_name == L"webstorm64") return "WebStorm";
+  if (lower_name == L"studio64") return "Android Studio";
+
+  // If not mapped, capitalize first letter of file_name
+  if (!file_name.empty()) {
+    file_name[0] = towupper(file_name[0]);
+    int utf8_len = WideCharToMultiByte(CP_UTF8, 0, file_name.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    if (utf8_len > 0) {
+      std::string result(utf8_len, 0);
+      WideCharToMultiByte(CP_UTF8, 0, file_name.c_str(), -1, &result[0], utf8_len, nullptr, nullptr);
+      if (!result.empty() && result.back() == '\0') {
+        result.pop_back();
+      }
+      return result;
+    }
+  }
+
+  return "";
+}
+
+static bool PasteTextIntoWindow(HWND self_hwnd, const std::wstring& wide_text, bool restore_clipboard = false, std::string* out_app_name = nullptr) {
   HWND target_hwnd = g_last_external_window;
   if (!IsRealAppWindow(target_hwnd, self_hwnd)) {
     HWND fg = GetForegroundWindow();
@@ -113,6 +194,13 @@ static bool PasteTextIntoWindow(HWND self_hwnd, const std::wstring& wide_text, b
 
   if (!IsRealAppWindow(target_hwnd, self_hwnd)) {
     return false;
+  }
+
+  if (out_app_name != nullptr) {
+    *out_app_name = GetWindowApplicationName(target_hwnd);
+    if (out_app_name->empty()) {
+      *out_app_name = "active window";
+    }
   }
 
   // If restore_clipboard requested, backup previous clipboard text
@@ -426,7 +514,7 @@ static bool CopyImageFileToClipboard(HWND self_hwnd, const std::wstring& file_pa
   return true;
 }
 
-static bool PasteImageIntoWindow(HWND self_hwnd, const std::wstring& file_path) {
+static bool PasteImageIntoWindow(HWND self_hwnd, const std::wstring& file_path, std::string* out_app_name = nullptr) {
   HWND target_hwnd = g_last_external_window;
   if (!IsRealAppWindow(target_hwnd, self_hwnd)) {
     HWND fg = GetForegroundWindow();
@@ -437,6 +525,13 @@ static bool PasteImageIntoWindow(HWND self_hwnd, const std::wstring& file_path) 
 
   if (!IsRealAppWindow(target_hwnd, self_hwnd)) {
     return false;
+  }
+
+  if (out_app_name != nullptr) {
+    *out_app_name = GetWindowApplicationName(target_hwnd);
+    if (out_app_name->empty()) {
+      *out_app_name = "active window";
+    }
   }
 
   if (!CopyImageFileToClipboard(self_hwnd, file_path)) {
@@ -588,13 +683,18 @@ bool FlutterWindow::OnCreate() {
                 if (!wide_text.empty() && wide_text.back() == L'\0') {
                   wide_text.pop_back();
                 }
-                bool ok = PasteTextIntoWindow(self_hwnd, wide_text, restore_clipboard);
-                result->Success(flutter::EncodableValue(ok));
+                std::string app_name = "";
+                bool ok = PasteTextIntoWindow(self_hwnd, wide_text, restore_clipboard, &app_name);
+                if (ok) {
+                  result->Success(flutter::EncodableValue(app_name));
+                } else {
+                  result->Success(flutter::EncodableValue(std::string("")));
+                }
                 return;
               }
             }
           }
-          result->Success(flutter::EncodableValue(false));
+          result->Success(flutter::EncodableValue(std::string("")));
           return;
         }
 
@@ -690,13 +790,18 @@ bool FlutterWindow::OnCreate() {
                 if (!wide_path.empty() && wide_path.back() == L'\0') {
                   wide_path.pop_back();
                 }
-                bool ok = PasteImageIntoWindow(self_hwnd, wide_path);
-                result->Success(flutter::EncodableValue(ok));
+                std::string app_name = "";
+                bool ok = PasteImageIntoWindow(self_hwnd, wide_path, &app_name);
+                if (ok) {
+                  result->Success(flutter::EncodableValue(app_name));
+                } else {
+                  result->Success(flutter::EncodableValue(std::string("")));
+                }
                 return;
               }
             }
           }
-          result->Success(flutter::EncodableValue(false));
+          result->Success(flutter::EncodableValue(std::string("")));
           return;
         }
 

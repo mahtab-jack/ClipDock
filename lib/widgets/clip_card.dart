@@ -219,16 +219,17 @@ class _ClipCardState extends State<ClipCard> {
 
   Future<void> _fillIntoActiveWindow() async {
     final shouldAlsoCopy = widget.clickRowToCopy;
-    bool success = false;
+    String? targetApp;
     if (widget.item.isImage && widget.item.imagePath != null) {
       try {
-        final result = await _dragDropChannel.invokeMethod<bool>('fillImageIntoActiveWindow', {
+        targetApp = await _dragDropChannel.invokeMethod<String>('fillImageIntoActiveWindow', {
           'filePath': widget.item.imagePath,
         });
-        success = result ?? false;
       } catch (_) {}
+      final success = targetApp != null && targetApp.isNotEmpty;
       if (success) {
-        widget.onNotify?.call('Filled image #${widget.serialNo} into active window', ToastType.success);
+        final appLabel = targetApp == 'active window' ? 'active window' : targetApp;
+        widget.onNotify?.call('Filled image #${widget.serialNo} into $appLabel', ToastType.success);
       } else {
         widget.onNotify?.call('No active input found to fill', ToastType.warning);
       }
@@ -237,20 +238,21 @@ class _ClipCardState extends State<ClipCard> {
         Clipboard.setData(ClipboardData(text: widget.item.content));
       }
       try {
-        final result = await _dragDropChannel.invokeMethod<bool>('fillTextIntoActiveWindow', {
+        targetApp = await _dragDropChannel.invokeMethod<String>('fillTextIntoActiveWindow', {
           'text': widget.item.content,
           'restoreClipboard': !shouldAlsoCopy,
         });
-        success = result ?? false;
       } catch (_) {}
+      final success = targetApp != null && targetApp.isNotEmpty;
       if (success) {
-        widget.onNotify?.call('Filled clip #${widget.serialNo} into active window', ToastType.success);
+        final appLabel = targetApp == 'active window' ? 'active window' : targetApp;
+        widget.onNotify?.call('Filled clip #${widget.serialNo} into $appLabel', ToastType.success);
       } else {
         widget.onNotify?.call('No active input found to fill', ToastType.warning);
       }
     }
 
-    if (shouldAlsoCopy && success) {
+    if (shouldAlsoCopy && (targetApp != null && targetApp.isNotEmpty)) {
       _copiedResetTimer?.cancel();
       setState(() {
         _isCopied = true;
