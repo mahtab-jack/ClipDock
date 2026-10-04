@@ -42,7 +42,7 @@ class EdgeDockWidget extends StatefulWidget {
   State<EdgeDockWidget> createState() => EdgeDockWidgetState();
 }
 
-class EdgeDockWidgetState extends State<EdgeDockWidget> {
+class EdgeDockWidgetState extends State<EdgeDockWidget> with WindowListener {
   bool get isPinned => _isPinned;
   final TextEditingController _searchController = TextEditingController();
   List<ClipItem> _clips = [];
@@ -79,6 +79,7 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
   @override
   void initState() {
     super.initState();
+    windowManager.addListener(this);
     _loadSettingsAndClips();
     _initScreenAndStart();
     _startClipboardMonitoring();
@@ -331,12 +332,25 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
 
   @override
   void dispose() {
+    windowManager.removeListener(this);
     _clipboardMonitorTimer?.cancel();
     _startupTimer?.cancel();
     _searchController.dispose();
     _autoHideTimer?.cancel();
     _toastTimer?.cancel();
     super.dispose();
+  }
+
+  @override
+  void onWindowBlur() {
+    if (!_isPinned && !_isDialogOpen && _isExpanded) {
+      _autoHideTimer?.cancel();
+      _autoHideTimer = Timer(const Duration(milliseconds: 250), () {
+        if (mounted && !_isPinned && !_isDialogOpen && _isExpanded) {
+          _collapseDock();
+        }
+      });
+    }
   }
 
   void _startClipboardMonitoring() {
@@ -837,23 +851,40 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
       context: context,
       barrierDismissible: true,
       barrierLabel: 'Dismiss Add Clip Dialog',
-      barrierColor: Colors.black.withAlpha(190),
+      barrierColor: Colors.transparent,
       transitionDuration: const Duration(milliseconds: 180),
       pageBuilder: (ctx, anim1, anim2) {
-        return Align(
-          alignment: Alignment.centerLeft,
-          child: SizedBox(
-            width: _panelWidth,
-            child: Center(
-              child: AddClipDialog(
-                isDark: widget.isDark,
-                settings: _settings,
-                onAdd: (title, content) {
-                  _saveClipText(content, title.isEmpty ? null : title);
-                },
+        return Stack(
+          children: [
+            Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: _panelWidth,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => Navigator.of(ctx).pop(),
+                child: Container(
+                  color: Colors.black.withAlpha(190),
+                ),
               ),
             ),
-          ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: SizedBox(
+                width: _panelWidth,
+                child: Center(
+                  child: AddClipDialog(
+                    isDark: widget.isDark,
+                    settings: _settings,
+                    onAdd: (title, content) {
+                      _saveClipText(content, title.isEmpty ? null : title);
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ],
         );
       },
     ).then((_) {
@@ -877,36 +908,53 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
       context: context,
       barrierDismissible: true,
       barrierLabel: 'Dismiss Edit Clip Dialog',
-      barrierColor: Colors.black.withAlpha(190),
+      barrierColor: Colors.transparent,
       transitionDuration: const Duration(milliseconds: 180),
       pageBuilder: (ctx, anim1, anim2) {
-        return Align(
-          alignment: Alignment.centerLeft,
-          child: SizedBox(
-            width: _panelWidth,
-            child: Center(
-              child: EditClipDialog(
-                isDark: widget.isDark,
-                item: item,
-                serialNo: serialNo,
-                settings: _settings,
-                onSave: (updatedTitle, updatedContent) {
-                  setState(() {
-                    final index = _clips.indexWhere((c) => c.id == item.id);
-                    if (index >= 0) {
-                      _clips[index].title = updatedTitle;
-                      _clips[index].customTitle = updatedTitle.isNotEmpty ? updatedTitle : null;
-                      _clips[index].content = updatedContent;
-                      _clips[index].updatedAt = DateTime.now();
-                      _applyFilter();
-                    }
-                  });
-                  _persistClips();
-                  _showNotification('Clip updated');
-                },
+        return Stack(
+          children: [
+            Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: _panelWidth,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => Navigator.of(ctx).pop(),
+                child: Container(
+                  color: Colors.black.withAlpha(190),
+                ),
               ),
             ),
-          ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: SizedBox(
+                width: _panelWidth,
+                child: Center(
+                  child: EditClipDialog(
+                    isDark: widget.isDark,
+                    item: item,
+                    serialNo: serialNo,
+                    settings: _settings,
+                    onSave: (updatedTitle, updatedContent) {
+                      setState(() {
+                        final index = _clips.indexWhere((c) => c.id == item.id);
+                        if (index >= 0) {
+                          _clips[index].title = updatedTitle;
+                          _clips[index].customTitle = updatedTitle.isNotEmpty ? updatedTitle : null;
+                          _clips[index].content = updatedContent;
+                          _clips[index].updatedAt = DateTime.now();
+                          _applyFilter();
+                        }
+                      });
+                      _persistClips();
+                      _showNotification('Clip updated');
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ],
         );
       },
     ).then((_) {
@@ -926,62 +974,79 @@ class EdgeDockWidgetState extends State<EdgeDockWidget> {
       context: context,
       barrierDismissible: true,
       barrierLabel: 'Dismiss Settings Dialog',
-      barrierColor: Colors.black.withAlpha(190),
+      barrierColor: Colors.transparent,
       transitionDuration: const Duration(milliseconds: 180),
       pageBuilder: (ctx, anim1, anim2) {
-        return Align(
-          alignment: Alignment.centerLeft,
-          child: SizedBox(
-            width: _panelWidth,
-            child: Center(
-              child: SettingsDialog(
-                  isDark: widget.isDark,
-                  clips: _clips.where((c) => !c.isDeleted).toList(),
-                  settings: _settings,
-                  onSettingsChanged: (updatedSettings) async {
-                    setState(() {
-                      _settings = updatedSettings;
-                    });
-                    await _persistSettings();
-                    try {
-                      await windowManager.setSize(Size(_totalWidth, _windowHeight));
-                      final targetX = _isExpanded ? _visibleX : _hiddenX;
-                      await windowManager.setPosition(Offset(targetX, _targetY));
-                    } catch (_) {}
-                  },
-                  onRestoreBackup: (restoredSettings, restoredClips) async {
-                    setState(() {
-                      if (restoredSettings != null) {
-                        _settings = restoredSettings;
-                      }
-                      if (restoredClips.isNotEmpty) {
-                        _clips = restoredClips;
-                      }
-                      _applyFilter();
-                    });
-                    await _persistClips();
-                    await _persistSettings();
-                    try {
-                      await windowManager.setSize(Size(_totalWidth, _windowHeight));
-                      final targetX = _isExpanded ? _visibleX : _hiddenX;
-                      await windowManager.setPosition(Offset(targetX, _targetY));
-                    } catch (_) {}
-                    _showNotification('Backup restored successfully');
-                  },
-                  onClearAll: () {
-                    setState(() {
-                      _clips.clear();
-                      _applyFilter();
-                    });
-                    _persistClips();
-                    _showNotification('All clips cleared');
-                  },
+        return Stack(
+          children: [
+            Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: _panelWidth,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => Navigator.of(ctx).pop(),
+                child: Container(
+                  color: Colors.black.withAlpha(190),
                 ),
               ),
             ),
-          );
-        },
-      );
+            Align(
+              alignment: Alignment.centerLeft,
+              child: SizedBox(
+                width: _panelWidth,
+                child: Center(
+                  child: SettingsDialog(
+                    isDark: widget.isDark,
+                    clips: _clips.where((c) => !c.isDeleted).toList(),
+                    settings: _settings,
+                    onSettingsChanged: (updatedSettings) async {
+                      setState(() {
+                        _settings = updatedSettings;
+                      });
+                      await _persistSettings();
+                      try {
+                        await windowManager.setSize(Size(_totalWidth, _windowHeight));
+                        final targetX = _isExpanded ? _visibleX : _hiddenX;
+                        await windowManager.setPosition(Offset(targetX, _targetY));
+                      } catch (_) {}
+                    },
+                    onRestoreBackup: (restoredSettings, restoredClips) async {
+                      setState(() {
+                        if (restoredSettings != null) {
+                          _settings = restoredSettings;
+                        }
+                        if (restoredClips.isNotEmpty) {
+                          _clips = restoredClips;
+                        }
+                        _applyFilter();
+                      });
+                      await _persistClips();
+                      await _persistSettings();
+                      try {
+                        await windowManager.setSize(Size(_totalWidth, _windowHeight));
+                        final targetX = _isExpanded ? _visibleX : _hiddenX;
+                        await windowManager.setPosition(Offset(targetX, _targetY));
+                      } catch (_) {}
+                      _showNotification('Backup restored successfully');
+                    },
+                    onClearAll: () {
+                      setState(() {
+                        _clips.clear();
+                        _applyFilter();
+                      });
+                      _persistClips();
+                      _showNotification('All clips cleared');
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
 
     if (mounted) {
       setState(() {
@@ -1067,15 +1132,26 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
       context: context,
       barrierDismissible: false,
       barrierLabel: 'Welcome to Clip Dock',
-      barrierColor: Colors.black.withAlpha(200),
+      barrierColor: Colors.transparent,
       transitionDuration: const Duration(milliseconds: 200),
       pageBuilder: (dialogCtx, anim1, anim2) {
-        return Align(
-          alignment: Alignment.centerLeft,
-          child: SizedBox(
-            width: _panelWidth,
-            child: Center(
-              child: Dialog(
+        return Stack(
+          children: [
+            Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: _panelWidth,
+              child: Container(
+                color: Colors.black.withAlpha(200),
+              ),
+            ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: SizedBox(
+                width: _panelWidth,
+                child: Center(
+                  child: Dialog(
                 backgroundColor: Colors.transparent,
                 elevation: 0,
                 insetPadding: const EdgeInsets.symmetric(horizontal: 16),
@@ -1208,7 +1284,7 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                 ),
               ),
             ),
-          ),
+          ],
         );
       },
     ).then((_) {
@@ -1229,20 +1305,37 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
       context: context,
       barrierDismissible: true,
       barrierLabel: 'Dismiss About Dialog',
-      barrierColor: Colors.black.withAlpha(190),
+      barrierColor: Colors.transparent,
       transitionDuration: const Duration(milliseconds: 180),
       pageBuilder: (ctx, anim1, anim2) {
-        return Align(
-          alignment: Alignment.centerLeft,
-          child: SizedBox(
-            width: _panelWidth,
-            child: Center(
-              child: AboutDialogWidget(
-                isDark: widget.isDark,
-                settings: _settings,
+        return Stack(
+          children: [
+            Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: _panelWidth,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => Navigator.of(ctx).pop(),
+                child: Container(
+                  color: Colors.black.withAlpha(190),
+                ),
               ),
             ),
-          ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: SizedBox(
+                width: _panelWidth,
+                child: Center(
+                  child: AboutDialogWidget(
+                    isDark: widget.isDark,
+                    settings: _settings,
+                  ),
+                ),
+              ),
+            ),
+          ],
         );
       },
     );
@@ -1280,7 +1373,12 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
     return Align(
       alignment: Alignment.topLeft,
       child: MouseRegion(
-        onEnter: (_) => _onMouseEnterEdge(),
+        hitTestBehavior: HitTestBehavior.opaque,
+        onEnter: (_) {
+          if (_isExpanded) {
+            _autoHideTimer?.cancel();
+          }
+        },
         onExit: (_) => _onMouseExitArea(),
         child: SizedBox(
           width: _totalWidth,
@@ -1294,7 +1392,13 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                 top: 0,
                 bottom: 0,
                 width: _panelWidth,
-                child: Container(
+                child: MouseRegion(
+                  onEnter: (_) {
+                    if (_isExpanded) {
+                      _autoHideTimer?.cancel();
+                    }
+                  },
+                  child: Container(
                       decoration: BoxDecoration(
                         color: bgGlass,
                         borderRadius: BorderRadius.zero,
@@ -1615,6 +1719,7 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                         ),
                       ),
                     ),
+                  ),
 
               // 2. Ribbon Handle (Attached directly OUTSIDE on the right side of the panel)
               if (((_isExpanded && _settings.showRibbonWhenExpanded) ||
@@ -1626,19 +1731,23 @@ if (\$ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
                   top: (1.0 - _settings.ribbonHeightPercent) * _windowHeight / 2,
                   height: _windowHeight * _settings.ribbonHeightPercent,
                   width: _ribbonWidth,
-                  child: GestureDetector(
-                    onTap: toggleDock,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: handleColor,
-                        borderRadius: BorderRadius.zero,
-                      ),
-                      child: Center(
-                        child: CollapseChevronIcon(
-                          color: isDark
-                              ? AppColors.darkTextPrimary.withAlpha(200)
-                              : AppColors.lightTextPrimary.withAlpha(200),
-                          size: 14,
+                  child: MouseRegion(
+                    onEnter: (_) {
+                      if (!_isExpanded) {
+                        _onMouseEnterEdge();
+                      } else {
+                        _autoHideTimer?.cancel();
+                      }
+                    },
+                    child: GestureDetector(
+                      onTap: toggleDock,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: handleColor,
+                          borderRadius: const BorderRadius.only(
+                            topRight: Radius.circular(8),
+                            bottomRight: Radius.circular(8),
+                          ),
                         ),
                       ),
                     ),
